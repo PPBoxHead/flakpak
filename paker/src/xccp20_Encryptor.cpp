@@ -1,6 +1,7 @@
 #include <flakpak/xccp20_Encryptor.hpp>
 
 #include <libsodium/sodium.h>
+#include <iostream>
 
 
 using namespace flakpak::data_types;
@@ -36,6 +37,7 @@ namespace flakpak::encryption::xccp20 {
 			/// TODO
 			/// Handle encryption error 
 			/// Output to console and close encryption process
+			std::cout << "Error: Encryption failed.\n";
 			return {};
 		}
 
@@ -62,6 +64,7 @@ namespace flakpak::encryption::xccp20 {
 			/// TODO
 			/// Handle error: Encrypted data too short
 			/// Output to console and close decryption process
+			std::cout << "Error: Encrypted data too short.\n";
 			return std::vector<uint8_t>();
 		}
 
@@ -89,6 +92,7 @@ namespace flakpak::encryption::xccp20 {
 			/// TODO
 			/// Handle decryption error (e.g., authentication failure)
 			/// Output to console and close decryption process
+			std::cout << "Error: Decryption failed or data is tampered.\n";
 			return std::vector<uint8_t>();
 		}
 

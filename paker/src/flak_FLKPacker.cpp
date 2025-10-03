@@ -17,6 +17,7 @@ namespace flakpak {
             /// TODO
 			/// Handle error: invalid input directory
 			/// Output to console
+			std::cout << "Error: Invalid input directory.\n";
             return false;
         }
 
@@ -29,6 +30,7 @@ namespace flakpak {
 			/// TODO
 			/// Handle error: too many files
             /// Output to console
+			std::cout << "Error: Too many files in directory. Maximum allowed is " << MAX_FLK_HEADER_ENTRIES << ".\n";
             return false;
         }
 
@@ -52,7 +54,7 @@ namespace flakpak {
 
             /// TODO
 			/// If debug flag enabled output to console the file being processed
-            //std::cout << "Processing: " << relPathStr << "\n";
+            std::cout << "Processing: " << relPathStr << "\n";
 
             try {
                 // Read file data directly
@@ -72,7 +74,7 @@ namespace flakpak {
 				/// TODO
 				/// Handle error: file processing failed
 				/// Output to console
-                //std::cerr << "Error processing file " << relPathStr << ": " << ex.what() << "\n";
+                std::cerr << "Error processing file " << relPathStr << ": " << ex.what() << "\n";
                 return false;
             }
         }
@@ -97,7 +99,7 @@ namespace flakpak {
 
 		/// TODO
 		/// If debug flag enabled output to console the summary
-        //std::cout << "Successfully packed " << header->entryCount << " files to " << outputPath.string() << "\n";
+        std::cout << "Successfully packed " << header->entryCount << " files to " << outputPath.string() << "\n";
 		return true;
 	}
     bool FLKPacker::PackCompressedAndUnencrypted(std::filesystem::path in_dirPath, std::filesystem::path in_outPath, int in_compressionLevel) {
@@ -144,7 +146,7 @@ namespace flakpak {
 
             /// TODO
             /// If debug flag enabled output to console the file being processed
-            //std::cout << "Processing: " << relPathStr << "\n";
+            std::cout << "Processing: " << relPathStr << "\n";
 
             try {
 				// Compress the data in place to save memory
@@ -164,7 +166,7 @@ namespace flakpak {
                 /// TODO
                 /// Handle error: file processing failed
                 /// Output to console
-                //std::cerr << "Error processing file " << relPathStr << ": " << ex.what() << "\n";
+                std::cerr << "Error processing file " << relPathStr << ": " << ex.what() << "\n";
                 return false;
             }
         }
@@ -189,7 +191,7 @@ namespace flakpak {
 
         /// TODO
         /// If debug flag enabled output to console the summary
-        //std::cout << "Successfully packed " << header->entryCount << " files to " << outputPath.string() << "\n";
+        std::cout << "Successfully packed " << header->entryCount << " files to " << outputPath.string() << "\n";
         return true;
     }
 
@@ -239,7 +241,7 @@ namespace flakpak {
 
             /// TODO
             /// If debug flag enabled output to console the file being processed
-            //std::cout << "Processing: " << relPathStr << "\n";
+            std::cout << "Processing: " << relPathStr << "\n";
 
             try {
 				// Read file data directly and encrypt
@@ -266,7 +268,7 @@ namespace flakpak {
                 /// TODO
                 /// Handle error: file processing failed
                 /// Output to console
-                //std::cerr << "Error processing file " << relPathStr << ": " << ex.what() << "\n";
+                std::cerr << "Error processing file " << relPathStr << ": " << ex.what() << "\n";
                 return false;
             }
         }
@@ -292,7 +294,7 @@ namespace flakpak {
 
         /// TODO
         /// If debug flag enabled output to console the summary
-        //std::cout << "Successfully packed " << header->entryCount << " files to " << outputPath.string() << "\n";
+        std::cout << "Successfully packed " << header->entryCount << " files to " << outputPath.string() << "\n";
         return true;
     }
 
@@ -344,7 +346,7 @@ namespace flakpak {
 
             /// TODO
             /// If debug flag enabled output to console the file being processed
-            //std::cout << "Processing: " << relPathStr << "\n";
+            std::cout << "Processing: " << relPathStr << "\n";
 
             try {
 				// Compress and then encrypt the data in place to save memory
@@ -371,7 +373,7 @@ namespace flakpak {
                 /// TODO
                 /// Handle error: file processing failed
                 /// Output to console
-                //std::cerr << "Error processing file " << relPathStr << ": " << ex.what() << "\n";
+                std::cerr << "Error processing file " << relPathStr << ": " << ex.what() << "\n";
                 return false;
             }
         }
@@ -397,7 +399,7 @@ namespace flakpak {
 
         /// TODO
         /// If debug flag enabled output to console the summary
-        //std::cout << "Successfully packed " << header->entryCount << " files to " << outputPath.string() << "\n";
+        std::cout << "Successfully packed " << header->entryCount << " files to " << outputPath.string() << "\n";
         return true;
     }
 
@@ -405,7 +407,7 @@ namespace flakpak {
         std::ifstream file(in_filePath, std::ios::binary | std::ios::ate);
         if (!file) {
             /// TODO Change this to output to console instead
-            throw std::runtime_error("Failed to open file: " + in_filePath.string());
+			std::cout << "Failed to open file: " << in_filePath.string() << "\n";
         }
 
         auto fileSize = file.tellg();
@@ -416,7 +418,7 @@ namespace flakpak {
 
         if (!file) {
             /// TODO Change this to output to console instead
-            throw std::runtime_error("Failed to read file: " + in_filePath.string());
+			std::cout << "Failed to read file: " << in_filePath.string() << "\n";
         }
 
         return data;
@@ -436,6 +438,7 @@ namespace flakpak {
             /// TODO
 			/// Handle error: file path too long
             /// Output to console
+			std::cout << "Error: File path too long: " << in_relPath << "\n";
             return false;
         }
 
@@ -444,6 +447,7 @@ namespace flakpak {
             /// TODO
 			/// Handle error: file too large
             /// Output to console
+			std::cout << "Error: File too large: " << in_relPath << "\n";
             return false;
         }
 
@@ -460,15 +464,17 @@ namespace flakpak {
             /// TODO
 			/// Handle error: failed to create output file
 			/// Output to console
+			std::cout << "Error: Failed to create output file: " << in_outPath.string() << "\n";
             return false;
         }
 
         // Write header
-        out.write(reinterpret_cast<const char*>(&in_header), sizeof(data_types::FLKHeader));
+        out.write(reinterpret_cast<const char*>(in_header), sizeof(data_types::FLKHeader));
         if (!out.good()) {
             /// TODO
 			/// Handle error: failed to write header
 			/// Output to console
+			std::cout << "Error: Failed to write header to file: " << in_outPath.string() << "\n";
             return false;
         }
 
@@ -479,6 +485,7 @@ namespace flakpak {
                 /// TODO
 				/// Handle error: failed to write salt
 				/// Output to console
+				std::cout << "Error: Failed to write salt to file: " << in_outPath.string() << "\n";
                 return false;
             }
         }
@@ -490,6 +497,7 @@ namespace flakpak {
                 /// TODO
 				/// Handle error: failed to write blob data
 				/// Output to console
+				std::cout << "Error: Failed to write blob data to file: " << in_outPath.string() << "\n";
                 return false;
             }
         }

@@ -18,6 +18,7 @@ namespace flakpak::compression::zstd {
 			/// TODO
 			/// Failed to open file error 
 			/// Output to console
+			std::cout << "Error: Failed to open file: " << in_path << "\n";
 			return {};
 		}
 
@@ -37,6 +38,7 @@ namespace flakpak::compression::zstd {
 			/// TODO
 			/// Handle error setting compression level
 			/// Output to console
+			std::cout << "Error: Failed to set compression level.\n";
 			return {};
 		}
 
@@ -69,6 +71,7 @@ namespace flakpak::compression::zstd {
 					/// TODO
 					/// Handle compression error
 					/// Output to console
+					std::cout << "Error: Compression failed for file: " << filename << "\n";
 					return {};
 				}
 				compressed.insert(compressed.end(), outBuffer.data(), outBuffer.data() + output.pos);
@@ -86,6 +89,7 @@ namespace flakpak::compression::zstd {
 				/// TODO
 				/// Handle end stream error
 				/// Output to console
+				std::cout << "Error: Failed to finalize compression for file: " << filename << "\n";
 				return {};
 			}
 			compressed.insert(compressed.end(), outBuffer.data(), outBuffer.data() + output.pos);
