@@ -3,6 +3,7 @@
 #include <flakpak/zstd_Compressor.hpp>
 #include <flakpak/xccp20_Encryptor.hpp>
 #include <flakpak/flak_PasswordHandler.hpp>
+#include <flakpak/flak_PathCompressor.hpp>
 
 #include <memory>
 #include <iostream>
@@ -79,6 +80,8 @@ namespace flakpak {
             }
         }
 
+        OptimizeUnusedEntries(header.get(), static_cast<uint32_t>(entryIndex));
+
         header->entryCount = static_cast<uint32_t>(entryIndex);
 
         // Calculate offsets
@@ -140,6 +143,14 @@ namespace flakpak {
             std::string relPathStr = rel.string();
             auto fileSize = std::filesystem::file_size(entry.path());
 
+            std::string compressedPath = pathcom::PathCompressor::CompressPath(relPathStr);
+
+            if (compressedPath.length() >= MAX_FILE_PATH_LENGTH) {
+                std::cerr << "Error: Compressed path too long: " << relPathStr
+                    << " -> " << compressedPath << " (" << compressedPath.length() << " chars)\n";
+                return false;
+            }
+
             if (!ValidateFLKConstraints(relPathStr, fileSize)) {
                 return false;
             }
@@ -154,8 +165,8 @@ namespace flakpak {
 
                 // Fill entry
                 FLKEntry& flkEntry = header->entries[entryIndex];
-                std::strncpy(flkEntry.path, relPathStr.c_str(), MAX_FILE_PATH_LENGTH - 1);
-                flkEntry.path[MAX_FILE_PATH_LENGTH - 1] = '\0';
+                
+				OptimizePathPadding(flkEntry.path, compressedPath);
                 flkEntry.baseSize = compressionResult.originalSize;
                 flkEntry.packedSize = compressionResult.data.size();
 
@@ -170,6 +181,8 @@ namespace flakpak {
                 return false;
             }
         }
+
+        OptimizeUnusedEntries(header.get(), static_cast<uint32_t>(entryIndex));
 
         header->entryCount = static_cast<uint32_t>(entryIndex);
 
@@ -273,6 +286,8 @@ namespace flakpak {
             }
         }
 
+        OptimizeUnusedEntries(header.get(), static_cast<uint32_t>(entryIndex));
+
         header->entryCount = static_cast<uint32_t>(entryIndex);
         header->saltLen = static_cast<uint32_t>(globalSalt.size());
 
@@ -340,13 +355,21 @@ namespace flakpak {
             std::string relPathStr = rel.string();
             auto fileSize = std::filesystem::file_size(entry.path());
 
+            std::string compressedPath = pathcom::PathCompressor::CompressPath(relPathStr);
+
+            if (compressedPath.length() >= MAX_FILE_PATH_LENGTH) {
+                std::cerr << "Error: Compressed path too long: " << relPathStr
+                    << " -> " << compressedPath << " (" << compressedPath.length() << " chars)\n";
+                return false;
+            }
+
             if (!ValidateFLKConstraints(relPathStr, fileSize)) {
                 return false;
             }
 
             /// TODO
             /// If debug flag enabled output to console the file being processed
-            std::cout << "Processing: " << relPathStr << "\n";
+            std::cout << "Processing: " << relPathStr << " -> " << compressedPath << " (saved " << (relPathStr.length() - compressedPath.length()) << " bytes)\n";
 
             try {
 				// Compress and then encrypt the data in place to save memory
@@ -361,8 +384,11 @@ namespace flakpak {
 
 				// Fill entry
                 FLKEntry& flkEntry = header->entries[entryIndex];
-                std::strncpy(flkEntry.path, relPathStr.c_str(), MAX_FILE_PATH_LENGTH - 1);
-                flkEntry.path[MAX_FILE_PATH_LENGTH - 1] = '\0';
+
+                OptimizePathPadding(flkEntry.path, compressedPath);
+                //std::strncpy(flkEntry.path, relPathStr.c_str(), MAX_FILE_PATH_LENGTH - 1);
+                //flkEntry.path[MAX_FILE_PATH_LENGTH - 1] = '\0';
+                
                 flkEntry.baseSize = compressionResult.originalSize;
                 flkEntry.packedSize = encryptionResult.data.size();
 
@@ -377,6 +403,8 @@ namespace flakpak {
                 return false;
             }
         }
+
+        OptimizeUnusedEntries(header.get(), static_cast<uint32_t>(entryIndex));
 
         header->entryCount = static_cast<uint32_t>(entryIndex);
         header->saltLen = static_cast<uint32_t>(globalSalt.size());
@@ -506,16 +534,33 @@ namespace flakpak {
         return out.good();
     }
 
-    void OptimizeUnusedEntries(flakpak::data_types::FLKHeader* in_header, uint32_t in_actualCount) {
-        // Fill unused entries with a pattern that compresses well
+    void FLKPacker::OptimizePathPadding(char* out_entryPath, const std::string& in_actualPath) {
+        // Clear with pattern first
+        std::fill(out_entryPath, out_entryPath + MAX_FILE_PATH_LENGTH, FLK_PADDING_PATTERN);
+
+        // Copy actual path
+        size_t copyLen = std::min(in_actualPath.length(),
+            static_cast<size_t>(MAX_FILE_PATH_LENGTH - 1));
+        std::memcpy(out_entryPath, in_actualPath.c_str(), copyLen);
+        out_entryPath[copyLen] = '\0';
+
+        // Fill remaining with decreasing pattern
+        for (size_t i = copyLen + 1; i < MAX_FILE_PATH_LENGTH; ++i) {
+            out_entryPath[i] = static_cast<char>(FLK_PADDING_PATTERN - (i % 8));
+        }
+    }
+
+    void FLKPacker::OptimizeUnusedEntries(flakpak::data_types::FLKHeader* in_header, uint32_t in_actualCount) {
         for (uint32_t i = in_actualCount; i < flakpak::MAX_FLK_HEADER_ENTRIES; i++) {
             auto& entry = in_header->entries[i];
-            // Use a repeating pattern instead of zeros
-            memset(entry.path, 0xCC, flakpak::MAX_FILE_PATH_LENGTH); // Repeating pattern
-            entry.path[flakpak::MAX_FILE_PATH_LENGTH - 1] = '\0';
-            entry.offset = 0xCCCCCCCCCCCCCCCC;      // Predictable 64-bit pattern
-            entry.baseSize = 0xCCCCCCCCCCCCCCCC;    // Same pattern
-            entry.packedSize = 0xCCCCCCCCCCCCCCCC;  // Same pattern
+
+            // Use compression-friendly pattern
+            std::fill(entry.path, entry.path + MAX_FILE_PATH_LENGTH, FLK_PADDING_PATTERN);
+            entry.path[MAX_FILE_PATH_LENGTH - 1] = '\0';
+
+            entry.offset = FLK_PADDING_PATTERN_64;
+            entry.baseSize = FLK_PADDING_PATTERN_64;
+            entry.packedSize = FLK_PADDING_PATTERN_64;
         }
     }
 

@@ -35,7 +35,11 @@
 //
 // ---------------------------------------------------------------------------
 // Dependencies:
-//  - <flakpak/flak_FLKDefinition.hpp> - flakpak API
+//  - <flakpak/flak_FLKDefinition.hpp>		 - flakpak API
+//  - <flakpak/zstd_Compressor.hpp>			 - flakpak API
+//  - <flakpak/xccp20_Encryptor.hpp>		 - flakpak API
+//  - <flakpak/flak_PasswordHandler.hpp>	 - flakpak API
+//	- <flakpak/flak_PathCompressor.hpp>		 - flakpak API
 // 
 //  - <filesystem>   - C++ Standard Library
 //  - <cstring>      - C++ Standard Library
@@ -86,8 +90,11 @@ namespace flakpak {
 
 		static bool WriteFLKFile(const std::filesystem::path& in_outPath, data_types::FLKHeader* in_header, const std::vector<std::vector<uint8_t>>& in_fileBlobs, const std::vector<uint8_t>& in_globalSalt);
 
+		static void OptimizePathPadding(char* out_entryPath, const std::string& in_actualPath);
+
 		static void OptimizeUnusedEntries(data_types::FLKHeader* in_header, uint32_t in_actualCount);
-	};
+
+	}; // class FLKPacker
 }
 
 #endif // !FLAK_FLK_PACKER_HPP

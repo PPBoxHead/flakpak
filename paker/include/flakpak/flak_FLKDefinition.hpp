@@ -60,6 +60,9 @@ namespace flakpak {
 	static constexpr size_t MAX_FLK_HEADER_ENTRIES = 256;	// Maximum number of entries in the FLK file
 	static constexpr size_t MAX_FILE_PATH_LENGTH = 128;		// Maximum length for file paths
 	static constexpr size_t MAX_FILE_SIZE = 1ULL << 30;		// Maximum file size (1 GB)
+
+	static constexpr uint8_t FLK_PADDING_PATTERN = 0xCC;
+	static constexpr uint64_t FLK_PADDING_PATTERN_64 = 0xCCCCCCCCCCCCCCCC;
 }
 
 namespace flakpak::data_types {
