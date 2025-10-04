@@ -27,7 +27,7 @@
 // 
 // Description: Interface for zstd compression algorithm
 // 
-// Author: Emanuel Favaro
+// Author: \x45\x6D\x61\x6E\x75\x65\x6C\x20\x46\x61\x76\x61\x72\x6F
 // Date: 30.08.2025
 // Version: 1.1.0
 //

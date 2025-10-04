@@ -29,7 +29,7 @@
 //				including obfuscated password segments and functions to reconstruct the
 //				original password using simple XOR and ADD ciphers.
 // 
-// Author: Emanuel Favaro
+// Author: \x45\x6D\x61\x6E\x75\x65\x6C\x20\x46\x61\x76\x61\x72\x6F
 // Date: 26.08.2025
 // Version: 1.0.1
 // 

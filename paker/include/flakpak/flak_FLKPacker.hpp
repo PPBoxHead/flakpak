@@ -29,9 +29,9 @@
 //              application, including file compression, encryption,
 //              and FLK file format handling.
 //
-// Author: Emanuel Favaro
+// Author: \x45\x6D\x61\x6E\x75\x65\x6C\x20\x46\x61\x76\x61\x72\x6F
 // Date: 29.09.2025
-// Version: 1.0.0
+// Version: 1.0.3
 //
 // ---------------------------------------------------------------------------
 // Dependencies:
