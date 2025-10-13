@@ -10,7 +10,7 @@ project "Paker"
     -- https://premake.github.io/docs/kind <-- Docs on project kinds
     kind "ConsoleApp"
 
-    targetname("flakpak")
+    targetname("flakpak-c")
 
     location(wsdir.. "/paker")
     targetdir(wsdir.. outputdir)
@@ -20,12 +20,14 @@ project "Paker"
     -- If using C, ensure to use cdialect
     -- https://premake.github.io/docs/cppdialect <-- Docs on cppdialect you can choose
     -- https://premake.github.io/docs/cdialect <-- Docs on cdialect you can choose
-    language "C++"
-    cppdialect "C++20"
+    language "C"
+    cdialect "C99"
 
     files {
-        wsdir.. "/paker/src/**.cpp",
-        wsdir.. "/paker/include/**.hpp",
+        wsdir.. "/paker/src/**.c",
+        wsdir.. "/paker/include/**.h",
+        wsdir.. "/vendor/include/microlog/ulog.c",
+        wsdir.. "/vendor/include/argtable3/argtable3.c",
     }
     includedirs {
         wsdir.. "/paker/include/",
@@ -42,15 +44,19 @@ project "Paker"
     -- Organize Filters for IDEs
     -- https://premake.github.io/docs/vpaths <-- Docs on Virtual Paths for IDEs
     vpaths {
-        ["Source Files/*"] = { wsdir.. "/paker/src/**.cpp" },
+        ["Source Files/*"] = { wsdir.. "/paker/src/**.c" },
         
-        ["Header Files/*"] = { wsdir.. "/paker/include/**.hpp" },
+        ["Header Files/*"] = { wsdir.. "/paker/include/**.h" },
     }
         
     filter "configurations:Release"
         defines {
             "NDEBUG",
-            "PAK_RELEASE"
+            "PAK_RELEASE",
+
+            "ULOG_BUILD_COLOR=1",
+            "ULOG_BUILD_TIME=1",
+            "ULOG_BUILD_SOURCE_LOCATION=1"
         }
         runtime "Release"
 

@@ -23,45 +23,35 @@
 // 3. This notice may not be removed or altered from any source distribution.
 //
 // ---------------------------------------------------------------------------
-//
-// File: [flak_PathCompressor.hpp - flak_PathCompressor.hpp]
-//
-// Description: Implements path compression and decompression functionalities
-//              for the flakpak application, optimizing file paths using
-//              predefined substitutions.
-//
+// File: [zstd_compressor.h - zstd_compressor.c]
+// 
+// Description: Interface for zstd compression algorithm
+// 
 // Author: \x45\x6D\x61\x6E\x75\x65\x6C\x20\x46\x61\x76\x61\x72\x6F
-// Date: 04.10.2025
-// Version: 1.0.0
+// Date: 12.10.2025
+// Version: 1.2.0
 //
 // ---------------------------------------------------------------------------
 // Dependencies:
-//  - <string>  - C++ Standard Library
-//  - <vector>   - C++ Standard Library
+//  - <flak_definitions.h> - flakpak API data types
 //
+//	- <stdlib.h>  - C Standard Library
+// 
+//  - <zstd.h> - Zstandard compression library
+// 
 // Notes:
 //  - [Any important implementation notes]
 //  - [Known issues or limitations]
 //  - [Performance considerations]
 //
 // ===========================================================================
-#ifndef FLAK_PATH_COMPRESSOR_HPP
-#define FLAK_PATH_COMPRESSOR_HPP
+#ifndef FLAKPAK_ZSTD_COMPRESSOR_H
+#define FLAKPAK_ZSTD_COMPRESSOR_H
 
-#include <string>
-#include <vector>
+#include <flakpak-c/flak_definitions.h>
 
 
-namespace flakpak::pathcom {
-	class PathCompressor {
-	public:
-		static std::string CompressPath(const std::string& in_filePath);
-		static std::string DecompressPath(const std::string& in_compressedPath);
+FLAK_COMPRESSION_RESULT FLAK_zstd_compress_data(const char* in_file_name, const uint8_t* in_data, size_t in_data_size, int in_comp_level);
 
-	private:
-		static const std::vector<std::pair<std::string, char>>& GetSubstitutions();
 
-	}; // class PathCompressor
-} // namespace flakpak::pathcom
-
-#endif // FLAK_FLK_PACKER_HPP
+#endif // !FLAKPAK_ZSTD_COMPRESSOR_H
