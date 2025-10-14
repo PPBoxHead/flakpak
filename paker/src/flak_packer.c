@@ -13,7 +13,13 @@
 // Count files recursively
 static void count_files_recursive(const char* dir_path, size_t* count) {
     tinydir_dir dir;
-    if (tinydir_open(&dir, (TCHAR*)dir_path) == -1) {
+
+    // Convert input path to TCHAR, since tinydir uses TCHAR and char in Windows is not UTF-8
+    /// Thanks to Santiago Farall on explaining this issue -> https://github.com/elsantiF
+    TCHAR tchar_in_dir_path[FLK_MAX_FILE_PATH_LENGTH] = { 0 };
+    MultiByteToWideChar(CP_UTF8, 0, dir_path, -1, tchar_in_dir_path, FLK_MAX_FILE_PATH_LENGTH);
+
+    if (tinydir_open(&dir, tchar_in_dir_path) == -1) {
         ulog_error("Failed to open directory: %s\n", dir_path);
 		ulog_error("Make sure the directory exists and you have permission to read it.\n");
         return;
@@ -27,12 +33,36 @@ static void count_files_recursive(const char* dir_path, size_t* count) {
             continue;
         }
 
+        // Convert file.name to utf8 for comparing "." and ".."
+        char name_utf8[FLK_MAX_FILE_PATH_LENGTH];
+#ifdef _WIN32
+        if (!tchar_to_utf8((TCHAR*)file.name, name_utf8, sizeof(name_utf8))) {
+            ulog_warn("Name conversion failed\n");
+            tinydir_next(&dir);
+            continue;
+        }
+#else
+        strncpy(name_utf8, (char*)file.name, sizeof(name_utf8));
+        name_utf8[sizeof(name_utf8) - 1] = '\0';
+#endif
+
         if (!file.is_dir) {
             (*count)++;
         }
-        else if (strcmp((char*)file.name, ".") != 0 && strcmp((char*)file.name, "..") != 0) {
-            // Recurse into subdirectories
-            count_files_recursive((char*)file.path, count);
+        else if (strcmp(name_utf8, ".") != 0 && strcmp(name_utf8, "..") != 0) {
+            // Convert file.path -> utf8 for recursion call
+            char path_utf8[FLK_MAX_FILE_PATH_LENGTH];
+#ifdef _WIN32
+            if (!tchar_to_utf8((TCHAR*)file.path, path_utf8, sizeof(path_utf8))) {
+                ulog_warn("Path conversion failed\n");
+                tinydir_next(&dir);
+                continue;
+            }
+#else
+            strncpy(path_utf8, (char*)file.path, sizeof(path_utf8));
+            path_utf8[sizeof(path_utf8) - 1] = '\0';
+#endif
+            count_files_recursive(path_utf8, count);
         }
 
         tinydir_next(&dir);
@@ -90,31 +120,35 @@ static uint8_t* read_file_data(const char* in_file_path, size_t* out_size) {
     return data;
 }
 
-// Get relative path (simple implementation)
-static bool get_relative_path(const char* in_base, const char* in_full, char* in_out_rel, size_t in_out_size) {
+// Simple subpath-based relative path
+static bool get_relative_path(const char* in_base, const char* in_full, char* out_rel, size_t out_size) {
+    if (!in_base || !in_full || !out_rel) return false;
+
     size_t base_len = strlen(in_base);
     size_t full_len = strlen(in_full);
-
     if (base_len > full_len) return false;
 
-    // Check if full path starts with base path
-    if (strncmp(in_base, in_full, base_len) != 0) {
-        return false;
+    // Compare ignoring slash direction (and case on Windows)
+    for (size_t i = 0; i < base_len; i++) {
+        char a = in_base[i];
+        char b = in_full[i];
+        if (a == '/' || a == '\\') a = PATH_SEP;
+        if (b == '/' || b == '\\') b = PATH_SEP;
+        if (!PATH_EQ(a, b))
+            return false;
     }
 
     const char* rel_start = in_full + base_len;
 
     // Skip separator if present
-    if (rel_start[0] == '/' || rel_start[0] == '\\') {
+    if (*rel_start == '/' || *rel_start == '\\')
         rel_start++;
-    }
 
-    if (strlen(rel_start) >= in_out_size) {
-        ulog_error("Relative path buffer too small\n");
+    size_t rel_len = strlen(rel_start);
+    if (rel_len >= out_size)
         return false;
-    }
 
-    strcpy(in_out_rel, rel_start);
+    memcpy(out_rel, rel_start, rel_len + 1);
     return true;
 }
 
@@ -130,6 +164,154 @@ static bool validate_flk_constraints(const char* rel_path, size_t file_size) {
     }
 
     return true;
+}
+
+// Recursive helper for packing files
+static void pack_directory_recursive(const char* base_dir, const char* current_dir,
+    FLK_header_t* header, uint8_t** blobs, size_t* blob_sizes,
+    uint64_t* current_offset, uint32_t* entry_index,
+    FLK_file_flags in_flags, int in_comp_level, uint8_t** global_salt, size_t* global_salt_size)
+{
+    tinydir_dir dir;
+
+    // Convert current path directory to TCHAR, since tinydir uses TCHAR and char in Windows is not UTF-8
+    /// Thanks to Santiago Farall on explaining this issue -> https://github.com/elsantiF
+    TCHAR tchar_dir[FLK_MAX_FILE_PATH_LENGTH] = { 0 };
+    MultiByteToWideChar(CP_UTF8, 0, current_dir, -1, tchar_dir, FLK_MAX_FILE_PATH_LENGTH);
+
+    if (tinydir_open(&dir, tchar_dir) == -1) {
+        ulog_error("Failed to open directory: %s\n", current_dir);
+        return;
+    }
+
+    while (dir.has_next) {
+        tinydir_file file;
+        if (tinydir_readfile(&dir, &file) != 0) {
+            tinydir_next(&dir);
+            continue;
+        }
+
+        char path_utf8[FLK_MAX_FILE_PATH_LENGTH];
+        char name_utf8[FLK_MAX_FILE_PATH_LENGTH];
+#ifdef _WIN32
+        if (!tchar_to_utf8((TCHAR*)file.path, path_utf8, sizeof(path_utf8)) ||
+            !tchar_to_utf8((TCHAR*)file.name, name_utf8, sizeof(name_utf8))) {
+            tinydir_next(&dir);
+            continue;
+        }
+#else
+        strncpy(path_utf8, (char*)file.path, sizeof(path_utf8));
+        path_utf8[sizeof(path_utf8) - 1] = '\0';
+        strncpy(name_utf8, (char*)file.name, sizeof(name_utf8));
+        name_utf8[sizeof(name_utf8) - 1] = '\0';
+#endif
+
+        // Skip "." and ".."
+        if (strcmp(name_utf8, ".") == 0 || strcmp(name_utf8, "..") == 0) {
+            tinydir_next(&dir);
+            continue;
+        }
+
+        if (file.is_dir) {
+            // Recurse into subdirectory
+            pack_directory_recursive(base_dir, path_utf8, header, blobs, blob_sizes,
+                current_offset, entry_index, in_flags, in_comp_level,
+                global_salt, global_salt_size);
+        }
+        else {
+            // Process file
+            char rel_path[FLK_MAX_FILE_PATH_LENGTH];
+            if (!get_relative_path(base_dir, path_utf8, rel_path, sizeof(rel_path))) {
+                ulog_warn("Failed to get relative path: %s\n", path_utf8);
+                tinydir_next(&dir);
+                continue;
+            }
+
+            struct stat st;
+            if (stat(path_utf8, &st) == -1) {
+                ulog_error("Failed to stat file: %s\n", path_utf8);
+                tinydir_next(&dir);
+                continue;
+            }
+            size_t file_size = (size_t)st.st_size;
+
+            if (!validate_flk_constraints(rel_path, file_size)) {
+                tinydir_next(&dir);
+                continue;
+            }
+
+            ulog_info("Processing: %s\n", rel_path);
+
+            size_t data_size = 0;
+            uint8_t* data = read_file_data(path_utf8, &data_size);
+            if (!data) {
+                tinydir_next(&dir);
+                continue;
+            }
+
+            uint8_t* processed_data = data;
+            size_t processed_size = data_size;
+            uint64_t base_size = data_size;
+
+            // Compression
+            if (in_flags & FLK_FLAG_COMPRESSED) {
+                FLAK_COMPRESSION_RESULT comp_result = FLAK_zstd_compress_data(
+                    rel_path, data, data_size, in_comp_level);
+                if (comp_result.data) {
+                    free(data);
+                    processed_data = comp_result.data;
+                    processed_size = comp_result.compressed_size;
+                    ulog_info("Compressed %zu -> %zu bytes\n", data_size, processed_size);
+                }
+                else {
+                    ulog_warn("Compression failed, using uncompressed\n");
+                }
+            }
+
+            // Encryption
+            if (in_flags & FLK_FLAG_ENCRYPTED) {
+                FLAK_ENCRYPTION_RESULT enc_result = FLAK_xccp20_encrypt_data(
+                    rel_path, processed_data, processed_size, FLAK_get_password());
+                if (enc_result.data) {
+                    if (processed_data != data) free(processed_data);
+                    else free(data);
+
+                    processed_data = enc_result.data;
+                    processed_size = enc_result.data_size;
+
+                    if (*entry_index == 0 && *global_salt == NULL) {
+                        *global_salt = (uint8_t*)malloc(16);
+                        if (*global_salt) {
+                            memcpy(*global_salt, enc_result.salt, 16);
+                            *global_salt_size = 16;
+                        }
+                    }
+                    ulog_info("Encrypted to %zu bytes\n", processed_size);
+                }
+                else {
+                    ulog_warn("Encryption failed\n");
+                    free(processed_data);
+                    tinydir_next(&dir);
+                    continue;
+                }
+            }
+
+            // Fill header entry
+            strcpy(header->entries[*entry_index].file_path, rel_path);
+            header->entries[*entry_index].offset = *current_offset;
+            header->entries[*entry_index].base_size = base_size;
+            header->entries[*entry_index].packed_size = processed_size;
+
+            blobs[*entry_index] = processed_data;
+            blob_sizes[*entry_index] = processed_size;
+            *current_offset += processed_size;
+            (*entry_index)++;
+        }
+
+        tinydir_next(&dir);
+    }
+
+    tinydir_close(&dir);
 }
 
 static bool write_flk_file(const char* in_out_path, FLK_header_t* in_header,
@@ -173,212 +355,308 @@ static bool write_flk_file(const char* in_out_path, FLK_header_t* in_header,
 }
 
 
-bool FLAK_pack_files(const char* in_dir_path, FLK_file_flags in_flags, int in_comp_level) {
-    tinydir_dir dir;
-
-    // Validate input directory
-    if (tinydir_open(&dir, (TCHAR*)in_dir_path) == -1) {
-        ulog_error("Failed to open directory: %s\n", in_dir_path);
-        return false;
-    }
-    tinydir_close(&dir);
-
-    // Count files
+bool FLAK_pack_files(const char* in_dir_path, const char* out_output_path,
+    FLK_file_flags in_flags, int in_comp_level)
+{
+    // Count files first
     size_t file_count = count_files_in_directory(in_dir_path);
-    ulog_info("Found %zu files to pack\n", file_count);
-
-    if (file_count > FLK_MAX_HEADER_ENTRIES) {
-        ulog_error("Too many files. Maximum allowed is %d\n", FLK_MAX_HEADER_ENTRIES);
-        return false;
-    }
     if (file_count == 0) {
         ulog_error("No files to pack\n");
         return false;
     }
+    if (file_count > FLK_MAX_HEADER_ENTRIES) {
+        ulog_error("Too many files. Max allowed: %d\n", FLK_MAX_HEADER_ENTRIES);
+        return false;
+    }
+    ulog_info("Found %zu files to pack\n", file_count);
 
-    // Initialize header
-    FLK_header_t* header = (FLK_header_t*)calloc(1, sizeof(FLK_header_t));
-    if (!header) {
-        ulog_fatal("Memory allocation failed for header\n");
+    // Allocate header and blobs
+    FLK_header_t* header = calloc(1, sizeof(FLK_header_t));
+
+    /// TODO
+    /// Allocate memory for file blobs and sizes in memory arena or dynamic array
+    uint8_t** blobs = malloc(sizeof(uint8_t*) * file_count);
+    size_t* blob_sizes = malloc(sizeof(size_t) * file_count);
+    if (!header || !blobs || !blob_sizes) {
+        ulog_fatal("Memory allocation failed\n");
+        free(header); free(blobs); free(blob_sizes);
         return false;
     }
 
     strcpy(header->magic, "FLK");
     header->version = 1;
-    header->salt_lenght = 0;
     header->content_version = 1;
     header->flags = in_flags;
-
-    /// TODO
-	/// Allocate memory for file blobs and sizes in memory arena or dynamic array
-    // Allocate blob storage
-    uint8_t** blobs = (uint8_t**)malloc(sizeof(uint8_t*) * file_count);
-    size_t* blob_sizes = (size_t*)malloc(sizeof(size_t) * file_count);
-    if (!blobs || !blob_sizes) {
-        ulog_fatal("Memory allocation failed for blob arrays\n");
-        free(header);
-        free(blobs);
-        free(blob_sizes);
-        return false;
-    }
-
-    // Open directory
-    if (tinydir_open(&dir, (TCHAR*)in_dir_path) == -1) {
-        ulog_error("Failed to open directory\n");
-        free(header);
-        free(blobs);
-        free(blob_sizes);
-        return false;
-    }
 
     uint32_t entry_index = 0;
     uint64_t current_offset = sizeof(FLK_header_t);
     uint8_t* global_salt = NULL;
     size_t global_salt_size = 0;
 
-    // Process files
-    while (dir.has_next) {
-        tinydir_file file;
-        if (tinydir_readfile(&dir, &file) == -1) {
-            ulog_error("Error reading file\n");
-            tinydir_next(&dir);
-            continue;
-        }
-        // Skip directories
-        if (file.is_dir) {
-            tinydir_next(&dir);
-            continue;
-        }
-
-        char rel_path[FLK_MAX_FILE_PATH_LENGTH];
-        if (!get_relative_path(in_dir_path, (char*)file.path, rel_path, FLK_MAX_FILE_PATH_LENGTH)) {
-            ulog_warn("Failed to get relative path\n");
-            tinydir_next(&dir);
-            continue;
-        }
-
-        struct stat st;
-        if (stat((char*)file.path, &st) == -1) {
-            ulog_error("Failed to stat file: %s\n", file.path);
-            tinydir_next(&dir);
-            continue;
-        }
-        size_t file_size = st.st_size;
-
-        if (!validate_flk_constraints(rel_path, file_size)) {
-            tinydir_next(&dir);
-            continue;
-        }
-
-        ulog_info("Processing: %s\n", rel_path);
-
-        // Read file
-        size_t data_size = 0;
-        uint8_t* data = read_file_data((char*)file.path, &data_size);
-        if (!data) {
-            ulog_error("Failed to read file: %s\n", rel_path);
-            tinydir_next(&dir);
-            continue;
-        }
-
-        uint8_t* processed_data = data;
-        size_t processed_size = data_size;
-        uint64_t base_size = data_size;
-
-        // Apply compression if needed
-        if (in_flags & FLK_FLAG_COMPRESSED) {
-            FLAK_COMPRESSION_RESULT comp_result = FLAK_zstd_compress_data(
-                rel_path, data, data_size, in_comp_level);
-
-            if (comp_result.data) {
-                free(data);
-                processed_data = comp_result.data;
-                processed_size = comp_result.compressed_size;
-                ulog_info("Compressed %zu -> %zu bytes\n", data_size, processed_size);
-            }
-            else {
-                ulog_warn("Compression failed, using uncompressed\n");
-            }
-        }
-
-        // Apply encryption if needed
-        if (in_flags & FLK_FLAG_ENCRYPTED) {
-            FLAK_ENCRYPTION_RESULT enc_result = FLAK_xccp20_encrypt_data(
-                rel_path, processed_data, processed_size, FLAK_get_password());
-
-            if (enc_result.data) {
-                if (processed_data != data) {
-                    free(processed_data);
-                }
-                else {
-                    free(data);
-                }
-                processed_data = enc_result.data;
-                processed_size = enc_result.data_size;
-
-                // Store salt from first file
-                if (entry_index == 0) {
-                    global_salt = (uint8_t*)malloc(16);
-                    if (global_salt) {
-                        memcpy(global_salt, enc_result.salt, 16);
-                        global_salt_size = 16;
-                    }
-                }
-                ulog_info("Encrypted to %zu bytes\n", processed_size);
-            }
-            else {
-                ulog_warn("Encryption failed\n");
-                free(processed_data);
-                tinydir_next(&dir);
-                continue;
-            }
-        }
-
-        // Fill entry
-        strcpy(header->entries[entry_index].file_path, rel_path);
-        header->entries[entry_index].offset = current_offset;
-        header->entries[entry_index].base_size = base_size;
-        header->entries[entry_index].packed_size = processed_size;
-
-        blobs[entry_index] = processed_data;
-        blob_sizes[entry_index] = processed_size;
-
-        current_offset += processed_size;
-        entry_index++;
-
-        tinydir_next(&dir);
-
-        if (entry_index >= file_count) break;
-    }
-
-    tinydir_close(&dir);
+    // Recursive packing
+    pack_directory_recursive(in_dir_path, in_dir_path, header, blobs, blob_sizes,
+        &current_offset, &entry_index, in_flags, in_comp_level,
+        &global_salt, &global_salt_size);
 
     header->entry_count = entry_index;
     header->salt_lenght = (uint8_t)global_salt_size;
 
-    // Write FLK file
-    if (!write_flk_file("output.flk", header, (const uint8_t**)blobs, blob_sizes, entry_index, global_salt, global_salt_size)) {
-        ulog_error("Failed to write FLK file\n");
-        free(header);
-        for (uint32_t i = 0; i < entry_index; i++) {
-            free(blobs[i]);
-        }
-        free(blobs);
-        free(blob_sizes);
-        free(global_salt);
-        return false;
-    }
+    // Write output
+    bool ok = write_flk_file(out_output_path, header, (const uint8_t**)blobs,
+        blob_sizes, entry_index, global_salt, global_salt_size);
 
-    ulog_info("Successfully packed %u files to output.flk\n", entry_index);
-
-	// Cleanup <-- later will be replaced by memory arena cleanups and so xd
+    // Cleanup
     free(header);
-    for (uint32_t i = 0; i < entry_index; i++) {
+    for (uint32_t i = 0; i < entry_index; i++)
         free(blobs[i]);
-    }
     free(blobs);
     free(blob_sizes);
     free(global_salt);
 
-	return true;
+    if (!ok) {
+        ulog_error("Failed to write FLK file\n");
+        return false;
+    }
+
+    ulog_info("Successfully packed %u files to %s\n", entry_index, out_output_path);
+    return true;
 }
+
+
+//bool FLAK_pack_files(const char* in_dir_path, const char* out_output_path, FLK_file_flags in_flags, int in_comp_level) {
+//    tinydir_dir dir;
+//
+//	// Convert input path to TCHAR, since tinydir uses TCHAR and char in Windows is not UTF-8
+//    /// Thanks to Santiago Farall on explaining this issue -> https://github.com/elsantiF
+//    TCHAR tchar_in_dir_path[FLK_MAX_FILE_PATH_LENGTH] = { 0 };
+//    MultiByteToWideChar(CP_UTF8, 0, in_dir_path, -1, tchar_in_dir_path, FLK_MAX_FILE_PATH_LENGTH);
+//
+//    // Validate input directory
+//    if (tinydir_open(&dir, tchar_in_dir_path) == -1) {
+//        ulog_error("Failed to open directory: %s\n", in_dir_path);
+//        return false;
+//    }
+//    tinydir_close(&dir);
+//
+//    // Count files
+//    size_t file_count = count_files_in_directory(in_dir_path);
+//    ulog_info("Found %zu files to pack\n", file_count);
+//
+//    if (file_count > FLK_MAX_HEADER_ENTRIES) {
+//        ulog_error("Too many files. Maximum allowed is %d\n", FLK_MAX_HEADER_ENTRIES);
+//        return false;
+//    }
+//    if (file_count == 0) {
+//        ulog_error("No files to pack\n");
+//        return false;
+//    }
+//
+//    // Initialize header
+//    FLK_header_t* header = (FLK_header_t*)calloc(1, sizeof(FLK_header_t));
+//    if (!header) {
+//        ulog_fatal("Memory allocation failed for header\n");
+//        return false;
+//    }
+//
+//    strcpy(header->magic, "FLK");
+//    header->version = 1;
+//    header->salt_lenght = 0;
+//    header->content_version = 1;
+//    header->flags = in_flags;
+//
+//    /// TODO
+//	/// Allocate memory for file blobs and sizes in memory arena or dynamic array
+//    // Allocate blob storage
+//    uint8_t** blobs = (uint8_t**)malloc(sizeof(uint8_t*) * file_count);
+//    size_t* blob_sizes = (size_t*)malloc(sizeof(size_t) * file_count);
+//    if (!blobs || !blob_sizes) {
+//        ulog_fatal("Memory allocation failed for blob arrays\n");
+//        free(header);
+//        free(blobs);
+//        free(blob_sizes);
+//        return false;
+//    }
+//
+//    // Open directory
+//    if (tinydir_open(&dir, tchar_in_dir_path) == -1) {
+//        ulog_error("Failed to open directory\n");
+//        free(header);
+//        free(blobs);
+//        free(blob_sizes);
+//        return false;
+//    }
+//
+//    uint32_t entry_index = 0;
+//    uint64_t current_offset = sizeof(FLK_header_t);
+//    uint8_t* global_salt = NULL;
+//    size_t global_salt_size = 0;
+//
+//    // Process files
+//    while (dir.has_next) {
+//        tinydir_file file;
+//        if (tinydir_readfile(&dir, &file) == -1) {
+//            ulog_error("Error reading file\n");
+//            tinydir_next(&dir);
+//            continue;
+//        }
+//        // Skip directories
+//        if (file.is_dir) {
+//            tinydir_next(&dir);
+//            continue;
+//        }
+//
+//        // Convert file.path and file.name to UTF-8 char buffers
+//        char path_utf8[FLK_MAX_FILE_PATH_LENGTH];
+//        char name_utf8[FLK_MAX_FILE_PATH_LENGTH];
+//#ifdef _WIN32
+//        if (!tchar_to_utf8((TCHAR*)file.path, path_utf8, sizeof(path_utf8))) {
+//            ulog_warn("Failed to convert file.path\n");
+//            tinydir_next(&dir);
+//            continue;
+//        }
+//        if (!tchar_to_utf8((TCHAR*)file.name, name_utf8, sizeof(name_utf8))) {
+//            ulog_warn("Failed to convert file.name\n");
+//            tinydir_next(&dir);
+//            continue;
+//        }
+//#else
+//        strncpy(path_utf8, (char*)file.path, sizeof(path_utf8));
+//        path_utf8[sizeof(path_utf8) - 1] = '\0';
+//        strncpy(name_utf8, (char*)file.name, sizeof(name_utf8));
+//        name_utf8[sizeof(name_utf8) - 1] = '\0';
+//#endif
+//
+//        char rel_path[FLK_MAX_FILE_PATH_LENGTH];
+//        if (!get_relative_path(in_dir_path, path_utf8, rel_path, FLK_MAX_FILE_PATH_LENGTH)) {
+//            ulog_warn("Failed to get relative path for file: %s\n", path_utf8);
+//            tinydir_next(&dir);
+//            continue;
+//        }
+//
+//        struct stat st;
+//        if (stat(path_utf8, &st) == -1) {
+//            ulog_error("Failed to stat file: %s\n", path_utf8);
+//            tinydir_next(&dir);
+//            continue;
+//        }
+//        size_t file_size = (size_t)st.st_size;
+//
+//
+//        if (!validate_flk_constraints(rel_path, file_size)) {
+//            tinydir_next(&dir);
+//            continue;
+//        }
+//
+//        ulog_info("Processing: %s\n", rel_path);
+//
+//        // Read file
+//        // read_file_data uses fopen() with char*; pass path_utf8
+//        size_t data_size = 0;
+//        uint8_t* data = read_file_data(path_utf8, &data_size);
+//        if (!data) {
+//            ulog_error("Failed to read file: %s\n", rel_path);
+//            tinydir_next(&dir);
+//            continue;
+//        }
+//
+//        uint8_t* processed_data = data;
+//        size_t processed_size = data_size;
+//        uint64_t base_size = data_size;
+//
+//        // Apply compression if needed
+//        if (in_flags & FLK_FLAG_COMPRESSED) {
+//            FLAK_COMPRESSION_RESULT comp_result = FLAK_zstd_compress_data(
+//                rel_path, data, data_size, in_comp_level);
+//
+//            if (comp_result.data) {
+//                free(data);
+//                processed_data = comp_result.data;
+//                processed_size = comp_result.compressed_size;
+//                ulog_info("Compressed %zu -> %zu bytes\n", data_size, processed_size);
+//            }
+//            else {
+//                ulog_warn("Compression failed, using uncompressed\n");
+//            }
+//        }
+//
+//        // Apply encryption if needed
+//        if (in_flags & FLK_FLAG_ENCRYPTED) {
+//            FLAK_ENCRYPTION_RESULT enc_result = FLAK_xccp20_encrypt_data(
+//                rel_path, processed_data, processed_size, FLAK_get_password());
+//
+//            if (enc_result.data) {
+//                if (processed_data != data) {
+//                    free(processed_data);
+//                }
+//                else {
+//                    free(data);
+//                }
+//                processed_data = enc_result.data;
+//                processed_size = enc_result.data_size;
+//
+//                // Store salt from first file
+//                if (entry_index == 0) {
+//                    global_salt = (uint8_t*)malloc(16);
+//                    if (global_salt) {
+//                        memcpy(global_salt, enc_result.salt, 16);
+//                        global_salt_size = 16;
+//                    }
+//                }
+//                ulog_info("Encrypted to %zu bytes\n", processed_size);
+//            }
+//            else {
+//                ulog_warn("Encryption failed\n");
+//                free(processed_data);
+//                tinydir_next(&dir);
+//                continue;
+//            }
+//        }
+//
+//        // Fill entry
+//        strcpy(header->entries[entry_index].file_path, rel_path);
+//        header->entries[entry_index].offset = current_offset;
+//        header->entries[entry_index].base_size = base_size;
+//        header->entries[entry_index].packed_size = processed_size;
+//
+//        blobs[entry_index] = processed_data;
+//        blob_sizes[entry_index] = processed_size;
+//
+//        current_offset += processed_size;
+//        entry_index++;
+//
+//        tinydir_next(&dir);
+//
+//        if (entry_index >= file_count) break;
+//    }
+//
+//    tinydir_close(&dir);
+//
+//    header->entry_count = entry_index;
+//    header->salt_lenght = (uint8_t)global_salt_size;
+//
+//    // Write FLK file
+//    if (!write_flk_file(out_output_path, header, (const uint8_t**)blobs, blob_sizes, entry_index, global_salt, global_salt_size)) {
+//        ulog_error("Failed to write FLK file\n");
+//        free(header);
+//        for (uint32_t i = 0; i < entry_index; i++) {
+//            free(blobs[i]);
+//        }
+//        free(blobs);
+//        free(blob_sizes);
+//        free(global_salt);
+//        return false;
+//    }
+//
+//    ulog_info("Successfully packed %u files to output.flk\n", entry_index);
+//
+//	// Cleanup <-- later will be replaced by memory arena cleanups and so xd
+//    free(header);
+//    for (uint32_t i = 0; i < entry_index; i++) {
+//        free(blobs[i]);
+//    }
+//    free(blobs);
+//    free(blob_sizes);
+//    free(global_salt);
+//
+//	return true;
+//}

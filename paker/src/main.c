@@ -54,7 +54,7 @@ int main (int argc, char* argv[]) {
 	bool useEncryption = encryption_enabled->count > 0;
 	int version = content_version->count > 0 ? content_version->ival[0] : 1;
 
-	bool result = FLAK_pack_files(inputDir, (FLK_file_flags)((useCompression ? FLK_FLAG_COMPRESSED : 0) | (useEncryption ? FLK_FLAG_ENCRYPTED : 0) | (version << 16)), compLevel);
+	bool result = FLAK_pack_files(inputDir, outputPath,(FLK_file_flags)((useCompression ? FLK_FLAG_COMPRESSED : 0) | (useEncryption ? FLK_FLAG_ENCRYPTED : 0) | (version << 16)), compLevel);
 	if (!result) {
 		ulog_error("Packing failed");
 		arg_freetable(argtable, sizeof(argtable) / sizeof(argtable[0]));

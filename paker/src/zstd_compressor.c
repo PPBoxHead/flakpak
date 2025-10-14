@@ -6,6 +6,25 @@
 #include <microlog/ulog.h>
 
 
+// Append function
+static bool append_compressed(uint8_t** compressed_data, size_t* compressed_size,
+	void* src, size_t src_size, const char* file_name) {
+	/// TODO
+	/// Append output.src[0..output.pos] to compressed_data using a memory arena or dynamic array in C
+	size_t prev_size = *compressed_data ? *compressed_size : 0;
+	uint8_t* temp = (uint8_t*)realloc(*compressed_data, prev_size + src_size);
+	if (!temp) {
+		free(*compressed_data);
+		ulog_fatal("ZSTD: Memory allocation error during compression for file %s", file_name);
+		return false;
+	}
+	*compressed_data = temp;
+	memcpy(*compressed_data + prev_size, src, src_size);
+	*compressed_size += src_size;
+	return true;
+}
+
+
 FLAK_COMPRESSION_RESULT FLAK_zstd_compress_data(const char* in_file_name, const uint8_t* in_data, size_t in_data_size, int in_comp_level) {
 	const size_t chunk_size = ZSTD_CStreamInSize();
 	const size_t out_chunk_size = ZSTD_CStreamOutSize();
@@ -43,19 +62,8 @@ FLAK_COMPRESSION_RESULT FLAK_zstd_compress_data(const char* in_file_name, const 
 				ulog_error("ZSTD: Compression error for file %s: %s", in_file_name, ZSTD_getErrorName(ret));
 				return (FLAK_COMPRESSION_RESULT){0};
 			}
-			/// TODO
-			/// Append output.src[0..output.pos] to compressed_data using a memory arena or dynamic array in C
-			size_t prev_size = compressed_data ? compressed_size : 0;
-			uint8_t* temp = (uint8_t*)realloc((void*)compressed_data, prev_size + zstd_output.pos);
-			if (!temp) {
-				free((void*)compressed_data);
-				ZSTD_freeCCtx(cctx);
-				ulog_fatal("ZSTD: Memory allocation error during compression for file %s", in_file_name);
-				return (FLAK_COMPRESSION_RESULT){0};
-			} else {
-				compressed_data = temp;
-				memcpy(compressed_data + prev_size, zstd_output.dst, zstd_output.pos);
-				compressed_size += zstd_output.pos;
+			if (!append_compressed(&compressed_data, &compressed_size, zstd_output.dst, zstd_output.pos, in_file_name)) {
+				return (FLAK_COMPRESSION_RESULT) { 0 };
 			}
 		}
 	}
@@ -68,22 +76,11 @@ FLAK_COMPRESSION_RESULT FLAK_zstd_compress_data(const char* in_file_name, const 
 		if (ZSTD_isError(ret2)) {
 			ZSTD_freeCCtx(cctx);
 			ulog_error("ZSTD: End stream error for file %s: %s", in_file_name, ZSTD_getErrorName(ret2));
-			return (FLAK_COMPRESSION_RESULT){0};
-		}
-		/// TODO
-		/// Append output.src[0..output.pos] to compressed_data using a memory arena or dynamic array in C
-		size_t prev_size = compressed_data ? compressed_size : 0;
-		uint8_t* temp = (uint8_t*)realloc((void*)compressed_data, prev_size + zstd_output.pos);
-		if (!temp) {
-			free((void*)compressed_data);
-			ZSTD_freeCCtx(cctx);
-			ulog_fatal("ZSTD: Memory allocation error during compression for file %s", in_file_name);
 			return (FLAK_COMPRESSION_RESULT) { 0 };
 		}
-		else {
-			compressed_data = temp;
+		if (!append_compressed(&compressed_data, &compressed_size, zstd_output.dst, zstd_output.pos, in_file_name)) {
+			return (FLAK_COMPRESSION_RESULT) { 0 };
 		}
-		zstd_output.pos = 0;
 	} while (ret2 != 0);
 
 	ZSTD_freeCCtx(cctx);

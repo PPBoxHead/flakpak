@@ -41,6 +41,7 @@
 //  - <flakpak-c/xccp20_encryptor.h>	 - flakpak API xccp20 encryptor interface
 //
 //	- <stdbool.h> - C Standard Library boolean type
+//  - <ctype.h>   - C Standard Library character handling
 // 
 //  - <tinydir.h> - filesystem path handling library
 // 
@@ -56,8 +57,37 @@
 #include <flakpak-c/flak_definitions.h>
 
 #include <stdbool.h>
+#include <ctype.h>
 
 
-bool FLAK_pack_files(const char* in_dir_path, FLK_file_flags in_flags, int in_comp_level);
+#ifdef _WIN32
+	#define PATH_SEP '\\'
+	#define PATH_EQ(a, b) (tolower((unsigned char)(a)) == tolower((unsigned char)(b)))
+    #include <windows.h>
+    #include <wchar.h>
+#else
+	#define PATH_SEP '/'
+	#define PATH_EQ(a, b) ((a) == (b))
+#endif
+
+// Convert a TCHAR* (wchar_t* on Windows) to UTF-8 char buffer.
+// out_buf must have out_size bytes. Returns true on success.
+static bool tchar_to_utf8(const TCHAR* in, char* out_buf, size_t out_size) {
+    if (!in || !out_buf || out_size == 0) return false;
+#ifdef _WIN32
+    int needed = WideCharToMultiByte(CP_UTF8, 0, (LPCWCH)in, -1, NULL, 0, NULL, NULL);
+    if (needed <= 0 || (size_t)needed > out_size) return false;
+    int written = WideCharToMultiByte(CP_UTF8, 0, (LPCWCH)in, -1, out_buf, (int)out_size, NULL, NULL);
+    return (written > 0);
+#else
+    // If TCHAR is char on non-Windows, just copy
+    size_t len = strlen((const char*)in);
+    if (len + 1 > out_size) return false;
+    memcpy(out_buf, (const char*)in, len + 1);
+    return true;
+#endif
+}
+
+bool FLAK_pack_files(const char* in_dir_path, const char* out_output_path, FLK_file_flags in_flags, int in_comp_level);
 
 #endif // !FLAKPAK_PACKER_H
