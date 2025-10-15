@@ -49,6 +49,18 @@ project "Paker"
         ["Header Files/*"] = { wsdir.. "/paker/include/**.h" },
     }
         
+    filter "configurations:Debug"
+        defines {
+            "DEBUG",
+            "_DEBUG",
+            "ANALOG_DEBUG",
+        }
+        runtime "Debug"
+        staticruntime "off"
+
+        symbols "on"
+        optimize "off"
+
     filter "configurations:Release"
         defines {
             "NDEBUG",

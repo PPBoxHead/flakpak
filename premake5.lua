@@ -11,7 +11,8 @@ workspace "Flakpak Workspace"
     startproject "Paker"
 
     configurations {
-        "Release",
+        "Debug",
+        "Release"
     }
 
 -- Global variables that can be used across all project files
