@@ -49,8 +49,8 @@ The basic command syntax for `flakpak` is:
 - `input_dir` : **Required**. Directory to pack.
 - `output` : **Required**. Output `.flk` file path.
 - `-h`, `-help` : _**Optional**_. Show command line options.
-- `-c`, `--compression-enabled` : **_Optional_**. Enable compression for packed assets.
-- `-e`, `--encryption-enabled` : **_Optional_**. Encrypt the output archive using *XChaCha20-Poly1305* encryption and *Argon2* key derivation.
+- `-c`, `--compress-enabled` : **_Optional_**. Enable compression for packed assets.
+- `-e`, `--encrypt-enabled` : **_Optional_**. Encrypt the output archive using *XChaCha20-Poly1305* encryption and *Argon2* key derivation.
 - `-l <level>` , `--compress-level <level>` : **_Optional_**. Compression level (1–22 for *Zstd*, default: 3).
 - `-v <ver>`, `--content-version <ver>` : **_Optional_**. Specify a content version (default: 1).
 > **Note:** Currently the `-v`, `--content-version <ver>` option is not implemented at all, so all `.flk` files will have it set to 1 even with the option set.
