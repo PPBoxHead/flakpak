@@ -26,12 +26,17 @@ The basic command syntax for `flakpak` is:
 
 ```sh
 # This will pack your resources with NO compression and encryption
-.\flakpak resources resources.flk
+.\flakpak-c resources resources.flk
 ```
 
 ```sh
-# This will pack your resources with both compression, encryption, compression level and content version
-.\flakpak resources resources.flk --compress --encrypt -c 22 --content-version 1
+# This will pack your resources with both compression, encryption, compression level and content version using the short options
+.\flakpak-c resources resources.flk -c -e -l 22 -v 1
+```
+
+```sh
+# This will pack your resources with both compression, encryption, compression level and content version using the long options
+.\flakpak-c resources resources.flk --compression-enabled --encryption-enabled --compress-level 22 --content-version 1
 ```
 
 **Arguments:**
@@ -41,13 +46,14 @@ The basic command syntax for `flakpak` is:
 
 **Options:**
 
-- `-h`, `-help` : Show command line options.
-- `--compress` : Enable compression for packed assets.
-- `--encrypt` : Encrypt the output archive.
-- `-c <level>` : Compression level (1–22 for Zstd, default: 3).
-- `--content-version <version>` : Specify a content version (default: 0).
-- `input_dir` : Required. Directory to pack.
-- `output` : Required. Output `.flk` file path.
+- `input_dir` : **Required**. Directory to pack.
+- `output` : **Required**. Output `.flk` file path.
+- `-h`, `-help` : _**Optional**_. Show command line options.
+- `-c`, `--compression-enabled` : **_Optional_**. Enable compression for packed assets.
+- `-e`, `--encryption-enabled` : **_Optional_**. Encrypt the output archive using *XChaCha20-Poly1305* encryption and *Argon2* key derivation.
+- `-l <level>` , `--compress-level <level>` : **_Optional_**. Compression level (1–22 for *Zstd*, default: 3).
+- `-v <ver>`, `--content-version <ver>` : **_Optional_**. Specify a content version (default: 1).
+> **Note:** Currently the `-v`, `--content-version <ver>` option is not implemented at all, so all `.flk` files will have it set to 1 even with the option set.
 
 **Packing modes:**
 - Uncompressed + Unencrypted

@@ -36,6 +36,7 @@
 //  - <flak_definitions.h> - flakpak API data types
 //
 //	- <stdlib.h>  - C Standard Library
+//  - <string.h>  - C Standard Library
 // 
 //  - <zstd.h> - Zstandard compression library
 // 

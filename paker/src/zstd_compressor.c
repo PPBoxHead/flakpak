@@ -1,6 +1,7 @@
 #include <flakpak-c/zstd_compressor.h>
 
 #include <stdlib.h>
+#include <string.h>
 
 #include <zstd/zstd.h>
 #include <microlog/ulog.h>

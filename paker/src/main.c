@@ -8,9 +8,9 @@
 
 struct arg_str* input_dir;
 struct arg_str* output_file;
-struct arg_int* compression_level;
 struct arg_lit* compression_enabled;
 struct arg_lit* encryption_enabled;
+struct arg_int* compression_level;
 struct arg_int* content_version;
 struct arg_end* end;
 
@@ -19,9 +19,9 @@ int main (int argc, char* argv[]) {
 	void* argtable[] = {
 		input_dir			= arg_str1("i", "input", "<input_dir>", "Input directory folder to pack"),
 		output_file			= arg_str1("o", "output", "<output>", "Output .flk file"),
-		compression_level	= arg_int0("l", "c_level", "<level>", "Compression level (1-22 for Zstd)"),
-		compression_enabled = arg_lit0("c", "c_enabled", "Enable .flk data compression"),
-		encryption_enabled	= arg_lit0("e", "e_enabled", "Enable .flk data encryption"),
+		compression_enabled = arg_lit0("c", "compress-enabled", "Enable .flk data compression"),
+		encryption_enabled	= arg_lit0("e", "encrypt-enabled", "Enable .flk data encryption using XChaCha20-Poly1305 encryption and Argon2 key derivation"),
+		compression_level	= arg_int0("l", "compress-level", "<level>", "Compression level (1-22 for Zstd, default: 3)"),
 		content_version		= arg_int0("v", "content-version", "<ver>", "Custom content version number"),
 		end = arg_end(20)
 	};
