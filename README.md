@@ -36,7 +36,7 @@ The basic command syntax for `flakpak` is:
 
 ```sh
 # This will pack your resources with both compression, encryption, compression level and content version using the long options
-.\flakpak-c resources resources.flk --compression-enabled --encryption-enabled --compress-level 22 --content-version 1
+.\flakpak-c resources resources.flk --compress-enabled --encrypt-enabled --compress-level 22 --content-version 1
 ```
 
 **Arguments:**
