@@ -53,7 +53,11 @@ project "Paker"
         defines {
             "DEBUG",
             "_DEBUG",
-            "ANALOG_DEBUG",
+            "FLAKPAK_DEBUG",
+
+            "ULOG_BUILD_COLOR=1",
+            "ULOG_BUILD_TIME=1",
+            "ULOG_BUILD_SOURCE_LOCATION=1"
         }
         runtime "Debug"
         staticruntime "off"
@@ -64,11 +68,11 @@ project "Paker"
     filter "configurations:Release"
         defines {
             "NDEBUG",
-            "PAK_RELEASE",
+            "FLAKPAK_RELEASE",
 
             "ULOG_BUILD_COLOR=1",
             "ULOG_BUILD_TIME=1",
-            "ULOG_BUILD_SOURCE_LOCATION=1"
+            "ULOG_BUILD_SOURCE_LOCATION=0"
         }
         runtime "Release"
 
