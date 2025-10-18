@@ -3,6 +3,7 @@
 #include <flakpak-c/flak_pswd_definition.h>
 #include <flakpak-c/zstd_compressor.h>
 #include <flakpak-c/xccp20_encryptor.h>
+#include <flakpak-c/flak_arena.h>
 
 #include <microlog/ulog.h>
 
@@ -96,11 +97,11 @@ static uint8_t* read_file_data(const char* in_file_path, size_t* out_size) {
         return NULL;
     }
 
-    /// TODO
-    /// Allocate memory for file data and handle using memory arena or dynamic array
+    // This is arbitrary data
     uint8_t* data = (uint8_t*)malloc(file_size);
     if (!data) {
         ulog_fatal("Memory allocation failed\n");
+		ulog_fatal("Arena out of memory while reading %s\n", in_file_path);
         fclose(f);
         *out_size = 0;
         return NULL;
@@ -167,20 +168,20 @@ static bool validate_flk_constraints(const char* rel_path, size_t file_size) {
 }
 
 // Recursive helper for packing files
-static void pack_directory_recursive(const char* base_dir, const char* current_dir,
-    FLK_header_t* header, uint8_t** blobs, size_t* blob_sizes,
-    uint64_t* current_offset, uint32_t* entry_index,
-    FLK_file_flags in_flags, int in_comp_level, uint8_t** global_salt, size_t* global_salt_size)
+static void pack_directory_recursive(const char* in_base_dir, const char* in_current_dir,
+    FLK_header_t* in_header, uint8_t** in_blobs, size_t* in_blob_sizes,
+    uint64_t* in_current_offset, uint32_t* in_entry_index,
+    FLK_file_flags in_flags, int in_comp_level, uint8_t** in_global_salt, size_t* in_global_salt_size)
 {
     tinydir_dir dir;
 
     // Convert current path directory to TCHAR, since tinydir uses TCHAR and char in Windows is not UTF-8
     /// Thanks to Santiago Farall on explaining this issue -> https://github.com/elsantiF
     TCHAR tchar_dir[FLK_MAX_FILE_PATH_LENGTH] = { 0 };
-    MultiByteToWideChar(CP_UTF8, 0, current_dir, -1, tchar_dir, FLK_MAX_FILE_PATH_LENGTH);
+    MultiByteToWideChar(CP_UTF8, 0, in_current_dir, -1, tchar_dir, FLK_MAX_FILE_PATH_LENGTH);
 
     if (tinydir_open(&dir, tchar_dir) == -1) {
-        ulog_error("Failed to open directory: %s\n", current_dir);
+        ulog_error("Failed to open directory: %s\n", in_current_dir);
         return;
     }
 
@@ -214,14 +215,14 @@ static void pack_directory_recursive(const char* base_dir, const char* current_d
 
         if (file.is_dir) {
             // Recurse into subdirectory
-            pack_directory_recursive(base_dir, path_utf8, header, blobs, blob_sizes,
-                current_offset, entry_index, in_flags, in_comp_level,
-                global_salt, global_salt_size);
+            pack_directory_recursive(in_base_dir, path_utf8, in_header, in_blobs, in_blob_sizes,
+                in_current_offset, in_entry_index, in_flags, in_comp_level,
+                in_global_salt, in_global_salt_size);
         }
         else {
             // Process file
             char rel_path[FLK_MAX_FILE_PATH_LENGTH];
-            if (!get_relative_path(base_dir, path_utf8, rel_path, sizeof(rel_path))) {
+            if (!get_relative_path(in_base_dir, path_utf8, rel_path, sizeof(rel_path))) {
                 ulog_warn("Failed to get relative path: %s\n", path_utf8);
                 tinydir_next(&dir);
                 continue;
@@ -245,6 +246,7 @@ static void pack_directory_recursive(const char* base_dir, const char* current_d
             size_t data_size = 0;
             uint8_t* data = read_file_data(path_utf8, &data_size);
             if (!data) {
+				ulog_warn("Failed to read file data: %s\n", path_utf8);
                 tinydir_next(&dir);
                 continue;
             }
@@ -279,11 +281,11 @@ static void pack_directory_recursive(const char* base_dir, const char* current_d
                     processed_data = enc_result.data;
                     processed_size = enc_result.data_size;
 
-                    if (*entry_index == 0 && *global_salt == NULL) {
-                        *global_salt = (uint8_t*)malloc(16);
-                        if (*global_salt) {
-                            memcpy(*global_salt, enc_result.salt, 16);
-                            *global_salt_size = 16;
+                    if (*in_entry_index == 0 && *in_global_salt == NULL) {
+                        *in_global_salt = (uint8_t*)malloc(16);
+                        if (*in_global_salt) {
+                            memcpy(*in_global_salt, enc_result.salt, 16);
+                            *in_global_salt_size = 16;
                         }
                     }
                     ulog_debug("Encrypted to %zu bytes\n", processed_size);
@@ -297,15 +299,15 @@ static void pack_directory_recursive(const char* base_dir, const char* current_d
             }
 
             // Fill header entry
-            strcpy(header->entries[*entry_index].file_path, rel_path);
-            header->entries[*entry_index].offset = *current_offset;
-            header->entries[*entry_index].base_size = base_size;
-            header->entries[*entry_index].packed_size = processed_size;
+            strcpy(in_header->entries[*in_entry_index].file_path, rel_path);
+            in_header->entries[*in_entry_index].offset = *in_current_offset;
+            in_header->entries[*in_entry_index].base_size = base_size;
+            in_header->entries[*in_entry_index].packed_size = processed_size;
 
-            blobs[*entry_index] = processed_data;
-            blob_sizes[*entry_index] = processed_size;
-            *current_offset += processed_size;
-            (*entry_index)++;
+            in_blobs[*in_entry_index] = processed_data;
+            in_blob_sizes[*in_entry_index] = processed_size;
+            *in_current_offset += processed_size;
+            (*in_entry_index)++;
         }
 
         tinydir_next(&dir);
@@ -356,8 +358,7 @@ static bool write_flk_file(const char* in_out_path, FLK_header_t* in_header,
 
 
 bool FLAK_pack_files(const char* in_dir_path, const char* out_output_path,
-    FLK_file_flags in_flags, int in_comp_level)
-{
+    FLK_file_flags in_flags, int in_comp_level) {
     // Count files first
     size_t file_count = count_files_in_directory(in_dir_path);
     if (file_count == 0) {
@@ -370,16 +371,25 @@ bool FLAK_pack_files(const char* in_dir_path, const char* out_output_path,
     }
     ulog_info("Found %zu files to pack\n", file_count);
 
-    // Allocate header and blobs
-    FLK_header_t* header = calloc(1, sizeof(FLK_header_t));
+    size_t base_arena_size = sizeof(FLK_header_t) +
+        (sizeof(uint8_t*) * file_count) +
+        (sizeof(size_t) * file_count) +
+        4096; // Extra padding for alignment
+	FLAK_memory_arena_t* arena = FLAK_memory_arena_create(base_arena_size);
+    if (!arena | !arena->base) {
+        ulog_fatal("Failed to allocate memory arena\n");
+        if (arena) free(arena);
+        return false;
+    }
 
-    /// TODO
-    /// Allocate memory for file blobs and sizes in memory arena or dynamic array
-    uint8_t** blobs = malloc(sizeof(uint8_t*) * file_count);
-    size_t* blob_sizes = malloc(sizeof(size_t) * file_count);
+    // Allocate header and blobs
+    FLK_header_t* header = FLAK_memory_arena_allocate(arena, sizeof(FLK_header_t), FLK_DEFAULT_ALIGNMENT);
+	uint8_t** blobs = FLAK_memory_arena_allocate(arena, sizeof(uint8_t*) * file_count, FLK_DEFAULT_ALIGNMENT);
+	size_t* blob_sizes = FLAK_memory_arena_allocate(arena, sizeof(size_t) * file_count, FLK_DEFAULT_ALIGNMENT);
     if (!header || !blobs || !blob_sizes) {
         ulog_fatal("Memory allocation failed\n");
-        free(header); free(blobs); free(blob_sizes);
+        FLAK_memory_arena_free(arena);
+        free(arena);
         return false;
     }
 
@@ -406,15 +416,17 @@ bool FLAK_pack_files(const char* in_dir_path, const char* out_output_path,
         blob_sizes, entry_index, global_salt, global_salt_size);
 
     // Cleanup
-    free(header);
-    for (uint32_t i = 0; i < entry_index; i++)
-        free(blobs[i]);
-    free(blobs);
-    free(blob_sizes);
+    for (uint32_t i = 0; i < entry_index; i++) {
+        if (blobs[i]) free(blobs[i]);  // These are the processed file data
+    }
     free(global_salt);
+	FLAK_memory_arena_free(arena);
+    free(arena);
 
     if (!ok) {
         ulog_error("Failed to write FLK file\n");
+        FLAK_memory_arena_free(arena);
+        free(arena);
         return false;
     }
 

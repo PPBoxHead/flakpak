@@ -39,6 +39,7 @@
 //  - <flakpak-c/flak_pswd_definition.h> - flakpak API password definition stuff
 //  - <flakpak-c/zstd_compressor.h>		 - flakpak API zstd compressor interface
 //  - <flakpak-c/xccp20_encryptor.h>	 - flakpak API xccp20 encryptor interface
+//  - <flakpak-c/flak_arena.h> 	         - flakpak API memory arena allocator
 //
 //	- <stdbool.h> - C Standard Library boolean type
 //  - <ctype.h>   - C Standard Library character handling
