@@ -21,7 +21,7 @@ static void count_files_recursive(const char* dir_path, size_t* count) {
     MultiByteToWideChar(CP_UTF8, 0, dir_path, -1, tchar_in_dir_path, FLK_MAX_FILE_PATH_LENGTH);
 
     if (tinydir_open(&dir, tchar_in_dir_path) == -1) {
-        ulog_error("Failed to open directory: %s\n", dir_path);
+        ulog_error("Failed to open directory: %s", dir_path);
 		ulog_error("Make sure the directory exists and you have permission to read it.\n");
         return;
     }
@@ -100,7 +100,7 @@ static uint8_t* read_file_data(const char* in_file_path, size_t* out_size) {
     // This is arbitrary data
     uint8_t* data = (uint8_t*)malloc(file_size);
     if (!data) {
-        ulog_fatal("Memory allocation failed\n");
+        ulog_fatal("Memory allocation failed");
 		ulog_fatal("Arena out of memory while reading %s\n", in_file_path);
         fclose(f);
         *out_size = 0;
@@ -241,7 +241,7 @@ static void pack_directory_recursive(const char* in_base_dir, const char* in_cur
                 continue;
             }
 
-            ulog_info("Processing: %s\n", rel_path);
+            ulog_info("Processing: %s", rel_path);
 
             size_t data_size = 0;
             uint8_t* data = read_file_data(path_utf8, &data_size);
@@ -263,7 +263,7 @@ static void pack_directory_recursive(const char* in_base_dir, const char* in_cur
                     free(data);
                     processed_data = comp_result.data;
                     processed_size = comp_result.compressed_size;
-                    ulog_debug("Compressed %zu -> %zu bytes\n", data_size, processed_size);
+                    ulog_debug("Compressed %zu -> %zu bytes", data_size, processed_size);
                 }
                 else {
                     ulog_warn("Compression failed, using uncompressed\n");
