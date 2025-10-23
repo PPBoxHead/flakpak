@@ -29,11 +29,12 @@
 // 
 // Author: \x45\x6D\x61\x6E\x75\x65\x6C\x20\x46\x61\x76\x61\x72\x6F
 // Date: 12.10.2025
-// Version: 1.2.0
+// Version: 1.2.1
 //
 // ---------------------------------------------------------------------------
 // Dependencies:
 //  - <flak_definitions.h> - flakpak API data types
+//  - <flak_arena.h>       - flakpak API memory arena allocator
 //
 //	- <stdlib.h>  - C Standard Library
 //  - <string.h>  - C Standard Library
@@ -54,5 +55,6 @@
 
 FLAK_COMPRESSION_RESULT FLAK_zstd_compress_data(const char* in_file_name, const uint8_t* in_data, size_t in_data_size, int in_comp_level);
 
+FLAK_DECOMPRESSION_RESULT FLAK_zstd_decompress_data(const char* in_file_name, const uint8_t* in_data, size_t in_data_size);
 
 #endif // !FLAKPAK_ZSTD_COMPRESSOR_H

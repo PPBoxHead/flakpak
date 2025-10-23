@@ -420,8 +420,6 @@ bool FLAK_pack_files(const char* in_dir_path, const char* out_output_path,
         if (blobs[i]) free(blobs[i]);  // These are the processed file data
     }
     free(global_salt);
-	FLAK_memory_arena_free(arena);
-    free(arena);
 
     if (!ok) {
         ulog_error("Failed to write FLK file\n");
@@ -429,6 +427,9 @@ bool FLAK_pack_files(const char* in_dir_path, const char* out_output_path,
         free(arena);
         return false;
     }
+
+	FLAK_memory_arena_free(arena);
+    free(arena);
 
     ulog_info("Successfully packed %u files to %s\n", entry_index, out_output_path);
     return true;

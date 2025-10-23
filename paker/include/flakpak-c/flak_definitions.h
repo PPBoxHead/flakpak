@@ -98,6 +98,13 @@ typedef struct FLAK_COMPRESSION_RESULT {
 	size_t compressed_size;		// Size after compression
 } FLAK_COMPRESSION_RESULT;
 
+// Result structure for decompression operations
+typedef struct {
+	uint8_t* data; 			// Pointer to the decompressed data
+	size_t data_size; 			// Size of the decompressed data
+} FLAK_DECOMPRESSION_RESULT;
+
+
 // Result structure for encryption operations
 typedef struct FLAK_ENCRYPTION_RESULT {
 	uint8_t* data; 		// Pointer to the encrypted data
@@ -106,5 +113,9 @@ typedef struct FLAK_ENCRYPTION_RESULT {
 	size_t data_size;	// Size of the encrypted data
 } FLAK_ENCRYPTION_RESULT;
 
+typedef struct FLAK_DECRYPTION_RESULT {
+	uint8_t* data; 		// Pointer to the decrypted data
+	size_t data_size;	// Size of the decrypted data
+} FLAK_DECRYPTION_RESULT;
 
 #endif // !FLAKPAK_FLK_DEFINITION_H

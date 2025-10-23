@@ -1,4 +1,5 @@
 #include <flakpak-c/zstd_compressor.h>
+#include <flakpak-c/flak_arena.h>
 
 #include <stdlib.h>
 #include <string.h>
@@ -27,16 +28,17 @@ static bool append_compressed(uint8_t** compressed_data, size_t* compressed_size
 
 
 FLAK_COMPRESSION_RESULT FLAK_zstd_compress_data(const char* in_file_name, const uint8_t* in_data, size_t in_data_size, int in_comp_level) {
-	const size_t chunk_size = ZSTD_CStreamInSize();
-	const size_t out_chunk_size = ZSTD_CStreamOutSize();
+	FLAK_COMPRESSION_RESULT compression_result = { 0 };
 
+	const size_t out_chunk_size = ZSTD_CStreamOutSize();
+	const size_t chunk_size = ZSTD_CStreamInSize();
 	// Initialize ZSTD compression context
 	ZSTD_CCtx* cctx = ZSTD_createCCtx();
 	size_t ret = ZSTD_CCtx_setParameter(cctx, ZSTD_c_compressionLevel, in_comp_level);
 	if (ZSTD_isError(ret)) {
 		ZSTD_freeCCtx(cctx);
 		ulog_error("ZSTD: Error setting compression level for file %s: %s", in_file_name, ZSTD_getErrorName(ret));
-		return (FLAK_COMPRESSION_RESULT){0};
+		return compression_result;
 	}
 
 	// Buffers for input and output
@@ -61,10 +63,10 @@ FLAK_COMPRESSION_RESULT FLAK_zstd_compress_data(const char* in_file_name, const 
 			if (ZSTD_isError(ret)) {
 				ZSTD_freeCCtx(cctx);
 				ulog_error("ZSTD: Compression error for file %s: %s", in_file_name, ZSTD_getErrorName(ret));
-				return (FLAK_COMPRESSION_RESULT){0};
+				return compression_result;
 			}
 			if (!append_compressed(&compressed_data, &compressed_size, zstd_output.dst, zstd_output.pos, in_file_name)) {
-				return (FLAK_COMPRESSION_RESULT) { 0 };
+				return compression_result;
 			}
 		}
 	}
@@ -77,20 +79,61 @@ FLAK_COMPRESSION_RESULT FLAK_zstd_compress_data(const char* in_file_name, const 
 		if (ZSTD_isError(ret2)) {
 			ZSTD_freeCCtx(cctx);
 			ulog_error("ZSTD: End stream error for file %s: %s", in_file_name, ZSTD_getErrorName(ret2));
-			return (FLAK_COMPRESSION_RESULT) { 0 };
+			return compression_result;
 		}
 		if (!append_compressed(&compressed_data, &compressed_size, zstd_output.dst, zstd_output.pos, in_file_name)) {
-			return (FLAK_COMPRESSION_RESULT) { 0 };
+			return compression_result;
 		}
 	} while (ret2 != 0);
 
 	ZSTD_freeCCtx(cctx);
 
 	// Return the compressed data and {sizes
-	FLAK_COMPRESSION_RESULT compression_result = { 0 };
 	compression_result.data = compressed_data;
 	compression_result.original_size = in_data_size;
 	compression_result.compressed_size = compressed_size;
 
 	return compression_result;
+}
+
+FLAK_DECOMPRESSION_RESULT FLAK_zstd_decompress_data(const char* in_file_name, const uint8_t* in_data, size_t in_data_size) {
+	FLAK_DECOMPRESSION_RESULT decompression_result = { 0 };
+	// Get decompressed (original) size
+	size_t decompressed_size = ZSTD_getFrameContentSize(in_data, in_data_size);
+	if (decompressed_size == ZSTD_CONTENTSIZE_ERROR) {
+		ulog_error("ZSTD: Not a valid compressed frame for file %s", in_file_name);
+		return decompression_result;
+	}
+	else if (decompressed_size == ZSTD_CONTENTSIZE_UNKNOWN) {
+		ulog_error("ZSTD: Original size unknown for file %s", in_file_name);
+		return decompression_result;
+	}
+	// Allocate memory with decompressed data as base size
+	FLAK_memory_arena_t* arena = FLAK_memory_arena_create(decompressed_size);
+	uint8_t* decompressed_data = FLAK_memory_arena_allocate(arena, decompressed_size, FLK_DEFAULT_ALIGNMENT);
+
+	// Perform decompression
+	size_t d_size = ZSTD_decompress(decompressed_data, decompressed_size, in_data, in_data_size);
+	if (ZSTD_isError(d_size)) {
+		ulog_error("ZSTD: Decompression error for file %s: %s",
+			in_file_name, ZSTD_getErrorName(d_size));
+		FLAK_memory_arena_free(arena);
+		free(arena);
+		return decompression_result;
+	}
+
+	// Optional: shrink allocation if actual size < expected size
+	if (d_size < decompressed_size) {
+		uint8_t* temp = (uint8_t*)realloc(decompressed_data, d_size);
+		if (temp)
+			decompressed_data = temp;
+	}
+
+	decompression_result.data = decompressed_data;
+	decompression_result.data_size = d_size;
+
+	FLAK_memory_arena_free(arena);
+	free(arena);
+
+	return decompression_result;
 }

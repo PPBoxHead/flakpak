@@ -1,4 +1,5 @@
 #include <flakpak-c/xccp20_encryptor.h>
+#include <flakpak-c/flak_arena.h>
 
 #include <string.h>
 
@@ -19,8 +20,6 @@ FLAK_ENCRYPTION_RESULT FLAK_xccp20_encrypt_data(const char* in_file_name, const 
 	randombytes_buf(encryption_result.nonce, crypto_aead_xchacha20poly1305_ietf_NPUBBYTES);
 
 	// Encrypt data
-	/// TODO
-	/// Allocate memory for ciphertext and handle encryption using memory arena or dynamic array
 	uint8_t* ciphertext = (uint8_t*)malloc(in_data_size + crypto_aead_xchacha20poly1305_ietf_ABYTES);
 	if (ciphertext == NULL) {
 		ulog_fatal("XCCP20: Memory allocation failed for file %s", in_file_name);
@@ -43,8 +42,6 @@ FLAK_ENCRYPTION_RESULT FLAK_xccp20_encrypt_data(const char* in_file_name, const 
 		return encryption_result;
 	}
 
-	/// TODO
-	/// Reallocate memory for ciphertext and handle encryption using memory arena or dynamic array
 	uint8_t* temp = (uint8_t*)realloc(ciphertext, ciphertext_len);
 	if (temp == NULL) {
 		ulog_fatal("XCCP20: Memory reallocation failed for file %s", in_file_name);
@@ -55,8 +52,6 @@ FLAK_ENCRYPTION_RESULT FLAK_xccp20_encrypt_data(const char* in_file_name, const 
 	ciphertext = temp;
 
 	// Prepend nonce to ciphertext for storage/transmission
-	/// TODO
-	/// Allocate memory for final encrypted data and handle using memory arena or dynamic array
 	size_t nonce_size = crypto_aead_xchacha20poly1305_ietf_NPUBBYTES;
 	size_t total_size = nonce_size + ciphertext_len;
 
@@ -79,6 +74,58 @@ FLAK_ENCRYPTION_RESULT FLAK_xccp20_encrypt_data(const char* in_file_name, const 
 	free(ciphertext);
 
 	return encryption_result;
+}
+
+FLAK_DECRYPTION_RESULT FLAK_xccp20_decrypt_data(const char* in_file_name, const uint8_t* in_data, size_t in_data_size, const char* in_password) {
+	if (in_data_size < crypto_aead_xchacha20poly1305_ietf_NPUBBYTES + crypto_aead_xchacha20poly1305_ietf_ABYTES) {
+		ulog_error("XCCP20: Encrypted data too short for file %s", in_file_name);
+		FLAK_DECRYPTION_RESULT empty_result = { 0 };
+		return empty_result;
+	}
+	FLAK_DECRYPTION_RESULT decryption_result = { 0 };
+
+	// Derive key from password and salt
+	unsigned char key[crypto_aead_xchacha20poly1305_ietf_KEYBYTES];
+	derive_key(in_password, (uint8_t*)in_data, key);
+
+	// Extract nonce and ciphertext
+	const unsigned char* nonce = in_data;
+	const unsigned char* ciphertext = in_data + crypto_aead_xchacha20poly1305_ietf_NPUBBYTES;
+	size_t ciphertext_len = in_data_size - crypto_aead_xchacha20poly1305_ietf_NPUBBYTES;
+
+	if (ciphertext_len < crypto_aead_xchacha20poly1305_ietf_ABYTES) {
+		ulog_error("XCCP20: Ciphertext too short for file %s", in_file_name);
+		FLAK_DECRYPTION_RESULT empty_result = { 0 };
+		return empty_result;
+	}
+
+	FLAK_memory_arena_t* arena = FLAK_memory_arena_create(ciphertext_len - crypto_aead_xchacha20poly1305_ietf_ABYTES);
+
+	// Decrypt
+	uint8_t* decrypted_data = FLAK_memory_arena_allocate(arena, ciphertext_len - crypto_aead_xchacha20poly1305_ietf_ABYTES, FLK_DEFAULT_ALIGNMENT);
+	unsigned long long decrypted_len = 0;
+	int result = crypto_aead_xchacha20poly1305_ietf_decrypt(
+		decrypted_data, &decrypted_len,
+		NULL,
+		ciphertext, ciphertext_len,
+		NULL, 0,
+		nonce, key
+	);
+
+	if (result != 0) {
+		ulog_error("XCCP20: Decryption failed or data is tampered for file %s", in_file_name);
+		FLAK_memory_arena_free(arena);
+		free(arena);
+		return decryption_result;
+	}
+
+	decryption_result.data = decrypted_data;
+	decryption_result.data_size = decrypted_len;
+
+	FLAK_memory_arena_free(arena);
+	free(arena);
+	
+	return decryption_result;
 }
 
 void derive_key(const char* in_password, uint8_t* in_salt, unsigned char* out_key) {
