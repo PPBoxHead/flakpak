@@ -30,7 +30,6 @@ int main (int argc, char* argv[]) {
 	compression_level->ival[0] = 3; // Default compression level
 	content_version->ival[0] = 1; // Default content version
 
-
 	int nerrors = arg_parse(argc, argv, argtable);
 	if (nerrors != 0) {
 		ulog_error("Error parsing command line arguments");
