@@ -241,6 +241,7 @@ bool FLAK_pack_files(const char* in_dir_path, const char* out_output_path,
         file_list_free(&file_list);
         return false;
     }
+    memset(header, 0, sizeof(FLK_header_t));
 
     // Initialize header
     strcpy(header->magic, "FLK");
@@ -249,6 +250,12 @@ bool FLAK_pack_files(const char* in_dir_path, const char* out_output_path,
     header->flags = in_flags;
 
     uint64_t current_offset = sizeof(FLK_header_t);
+
+    // If encryption is enabled, account for global salt space
+    if (in_flags & FLK_FLAG_ENCRYPTED) {
+        current_offset += 16; // Global salt size
+    }
+
     uint8_t* global_salt = NULL;
     size_t global_salt_size = 0;
 
