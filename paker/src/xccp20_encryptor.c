@@ -6,7 +6,7 @@
 #include <libsodium/sodium.h>
 #include <microlog/ulog.h>
 
-static void derive_key(const char* in_password, uint8_t* in_salt, unsigned char* out_key);
+static bool derive_key(const char* in_password, uint8_t* in_salt, unsigned char* out_key);
 
 FLAK_ENCRYPTION_RESULT FLAK_xccp20_encrypt_data(const char* in_file_name, const uint8_t* in_data, size_t in_data_size, const char* in_password) {
 	// Generate random salt for key derivation
@@ -77,32 +77,29 @@ FLAK_ENCRYPTION_RESULT FLAK_xccp20_encrypt_data(const char* in_file_name, const 
 }
 
 FLAK_DECRYPTION_RESULT FLAK_xccp20_decrypt_data(const char* in_file_name, const uint8_t* in_data, size_t in_data_size, const char* in_password) {
-	if (in_data_size < crypto_aead_xchacha20poly1305_ietf_NPUBBYTES + crypto_aead_xchacha20poly1305_ietf_ABYTES) {
-		ulog_error("XCCP20: Encrypted data too short for file %s", in_file_name);
-		FLAK_DECRYPTION_RESULT empty_result = { 0 };
-		return empty_result;
-	}
 	FLAK_DECRYPTION_RESULT decryption_result = { 0 };
 
-	// Derive key from password and salt
+	if (in_data_size < crypto_aead_xchacha20poly1305_ietf_NPUBBYTES +
+		crypto_aead_xchacha20poly1305_ietf_ABYTES) {
+		ulog_error("XCCP20: Encrypted data too short for file %s", in_file_name);
+		return decryption_result;
+	}
+
+	// Derive key
 	unsigned char key[crypto_aead_xchacha20poly1305_ietf_KEYBYTES];
 	derive_key(in_password, (uint8_t*)in_data, key);
 
-	// Extract nonce and ciphertext
 	const unsigned char* nonce = in_data;
 	const unsigned char* ciphertext = in_data + crypto_aead_xchacha20poly1305_ietf_NPUBBYTES;
 	size_t ciphertext_len = in_data_size - crypto_aead_xchacha20poly1305_ietf_NPUBBYTES;
 
 	if (ciphertext_len < crypto_aead_xchacha20poly1305_ietf_ABYTES) {
 		ulog_error("XCCP20: Ciphertext too short for file %s", in_file_name);
-		FLAK_DECRYPTION_RESULT empty_result = { 0 };
-		return empty_result;
+		return decryption_result;
 	}
 
-	FLAK_memory_arena_t* arena = FLAK_memory_arena_create(ciphertext_len - crypto_aead_xchacha20poly1305_ietf_ABYTES);
-
-	// Decrypt
-	uint8_t* decrypted_data = FLAK_memory_arena_allocate(arena, ciphertext_len - crypto_aead_xchacha20poly1305_ietf_ABYTES, FLK_DEFAULT_ALIGNMENT);
+	size_t decrypted_size = ciphertext_len - crypto_aead_xchacha20poly1305_ietf_ABYTES;
+	uint8_t* decrypted_data = (uint8_t*)malloc(decrypted_size);
 	unsigned long long decrypted_len = 0;
 	int result = crypto_aead_xchacha20poly1305_ietf_decrypt(
 		decrypted_data, &decrypted_len,
@@ -114,21 +111,28 @@ FLAK_DECRYPTION_RESULT FLAK_xccp20_decrypt_data(const char* in_file_name, const 
 
 	if (result != 0) {
 		ulog_error("XCCP20: Decryption failed or data is tampered for file %s", in_file_name);
-		FLAK_memory_arena_free(arena);
-		free(arena);
+		free(decrypted_data);
 		return decryption_result;
 	}
 
 	decryption_result.data = decrypted_data;
 	decryption_result.data_size = decrypted_len;
-
-	FLAK_memory_arena_free(arena);
-	free(arena);
 	
 	return decryption_result;
 }
 
-void derive_key(const char* in_password, uint8_t* in_salt, unsigned char* out_key) {
+bool derive_key(const char* in_password, uint8_t* in_salt, unsigned char* out_key) {
+	if (!in_password || !in_salt || !out_key) {
+		ulog_error("Invalid parameters to derive_key");
+		return false;
+	}
+
+	size_t password_len = strlen(in_password);
+	if (password_len == 0) {
+		ulog_error("Empty password provided");
+		return false;
+	}
+
 	int result = crypto_pwhash(
 		out_key,
 		crypto_aead_xchacha20poly1305_ietf_KEYBYTES,
@@ -138,4 +142,11 @@ void derive_key(const char* in_password, uint8_t* in_salt, unsigned char* out_ke
 		crypto_pwhash_MEMLIMIT_MODERATE,
 		crypto_pwhash_ALG_ARGON2ID13
 	);
+
+	if (result != 0) {
+		ulog_error("Key derivation failed with code %d", result);
+		return false;
+	}
+
+	return true;
 }

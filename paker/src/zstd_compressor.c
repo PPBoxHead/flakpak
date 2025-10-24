@@ -1,5 +1,6 @@
 #include <flakpak-c/zstd_compressor.h>
 #include <flakpak-c/flak_arena.h>
+#include <flakpak-c/flak_dynamic_buffer.h>
 
 #include <stdlib.h>
 #include <string.h>
@@ -8,30 +9,9 @@
 #include <microlog/ulog.h>
 
 
-// Append function
-static bool append_compressed(uint8_t** compressed_data, size_t* compressed_size,
-	void* src, size_t src_size, const char* file_name) {
-	/// TODO
-	/// Append output.src[0..output.pos] to compressed_data using a memory arena or dynamic array in C
-	size_t prev_size = *compressed_data ? *compressed_size : 0;
-	uint8_t* temp = (uint8_t*)realloc(*compressed_data, prev_size + src_size);
-	if (!temp) {
-		free(*compressed_data);
-		ulog_fatal("ZSTD: Memory allocation error during compression for file %s", file_name);
-		return false;
-	}
-	*compressed_data = temp;
-	memcpy(*compressed_data + prev_size, src, src_size);
-	*compressed_size += src_size;
-	return true;
-}
-
-
 FLAK_COMPRESSION_RESULT FLAK_zstd_compress_data(const char* in_file_name, const uint8_t* in_data, size_t in_data_size, int in_comp_level) {
 	FLAK_COMPRESSION_RESULT compression_result = { 0 };
 
-	const size_t out_chunk_size = ZSTD_CStreamOutSize();
-	const size_t chunk_size = ZSTD_CStreamInSize();
 	// Initialize ZSTD compression context
 	ZSTD_CCtx* cctx = ZSTD_createCCtx();
 	size_t ret = ZSTD_CCtx_setParameter(cctx, ZSTD_c_compressionLevel, in_comp_level);
@@ -41,57 +21,77 @@ FLAK_COMPRESSION_RESULT FLAK_zstd_compress_data(const char* in_file_name, const 
 		return compression_result;
 	}
 
+	// Use dynamic buffer instead of repeated realloc
+	FLAK_dynamic_buffer_t output_buf;
+	if (!dynamic_buffer_init(&output_buf, FLAK_INITIAL_BUFFER_CAPACITY)) {
+		ulog_error("ZSTD: Failed to initialize output buffer");
+		ZSTD_freeCCtx(cctx);
+		return compression_result;
+	}
 	// Buffers for input and output
-	uint8_t* compressed_data = NULL;
-	size_t compressed_size = 0;
-	char* in_buffer = (char*)malloc(chunk_size);
-	char* out_buffer = (char*)malloc(out_chunk_size);
+	const size_t in_chunk_size = ZSTD_CStreamInSize();
+	const size_t out_chunk_size = ZSTD_CStreamOutSize();
 
-	ZSTD_inBuffer zstd_input = { NULL, 0, 0 };
-	ZSTD_outBuffer zstd_output = { out_buffer, out_chunk_size, 0 };
+	uint8_t* out_buffer = (uint8_t*)malloc(out_chunk_size);
+	if (!out_buffer) {
+		dynamic_buffer_free(&output_buf);
+		ZSTD_freeCCtx(cctx);
+		return compression_result;
+	}
 
-	size_t total_bytes_read = 0;
-	while (total_bytes_read < in_data_size) {
-		size_t to_read = (in_data_size - total_bytes_read) < chunk_size ? (in_data_size - total_bytes_read) : chunk_size;
-		zstd_input.src = in_data + total_bytes_read;
-		zstd_input.size = to_read;
-		zstd_input.pos = 0;
-		total_bytes_read += to_read;
-		while (zstd_input.pos < zstd_input.size) {
-			zstd_output.pos = 0;
-			size_t ret = ZSTD_compressStream(cctx, &zstd_output, &zstd_input);
-			if (ZSTD_isError(ret)) {
-				ZSTD_freeCCtx(cctx);
-				ulog_error("ZSTD: Compression error for file %s: %s", in_file_name, ZSTD_getErrorName(ret));
-				return compression_result;
-			}
-			if (!append_compressed(&compressed_data, &compressed_size, zstd_output.dst, zstd_output.pos, in_file_name)) {
-				return compression_result;
-			}
+	ZSTD_inBuffer input = { in_data, in_data_size, 0 };
+
+	while (input.pos < input.size) {
+		ZSTD_outBuffer output = { out_buffer, out_chunk_size, 0 };
+
+		size_t ret = ZSTD_compressStream2(cctx, &output, &input, ZSTD_e_continue);
+		if (ZSTD_isError(ret)) {
+			ulog_error("ZSTD: Compression error: %s", ZSTD_getErrorName(ret));
+			free(out_buffer);
+			dynamic_buffer_free(&output_buf);
+			ZSTD_freeCCtx(cctx);
+			return compression_result;
+		}
+
+		if (!dynamic_buffer_append(&output_buf, out_buffer, output.pos)) {
+			ulog_error("ZSTD: Buffer append failed");
+			free(out_buffer);
+			dynamic_buffer_free(&output_buf);
+			ZSTD_freeCCtx(cctx);
+			return compression_result;
 		}
 	}
 
-	// End the stream
-	zstd_output.pos = 0;
-	size_t ret2;
+	// Finalize compression
+	ZSTD_outBuffer output = { out_buffer, out_chunk_size, 0 };
+	size_t ret_end = 0;
 	do {
-		ret2 = ZSTD_endStream(cctx, &zstd_output);
-		if (ZSTD_isError(ret2)) {
+		output.pos = 0;
+		ret_end = ZSTD_compressStream2(cctx, &output, &input, ZSTD_e_end);
+		if (ZSTD_isError(ret_end)) {
+			ulog_error("ZSTD: End stream error: %s", ZSTD_getErrorName(ret_end));
+			free(out_buffer);
+			dynamic_buffer_free(&output_buf);
 			ZSTD_freeCCtx(cctx);
-			ulog_error("ZSTD: End stream error for file %s: %s", in_file_name, ZSTD_getErrorName(ret2));
 			return compression_result;
 		}
-		if (!append_compressed(&compressed_data, &compressed_size, zstd_output.dst, zstd_output.pos, in_file_name)) {
-			return compression_result;
-		}
-	} while (ret2 != 0);
 
+		if (!dynamic_buffer_append(&output_buf, out_buffer, output.pos)) {
+			ulog_error("ZSTD: Buffer append failed during finalization");
+			free(out_buffer);
+			dynamic_buffer_free(&output_buf);
+			ZSTD_freeCCtx(cctx);
+			return compression_result;
+		}
+	} while (ret_end != 0);
+
+	free(out_buffer);
 	ZSTD_freeCCtx(cctx);
 
-	// Return the compressed data and {sizes
-	compression_result.data = compressed_data;
+	// Transfer ownership to result
+	compression_result.data = output_buf.data;
 	compression_result.original_size = in_data_size;
-	compression_result.compressed_size = compressed_size;
+	compression_result.compressed_size = output_buf.size;
 
 	return compression_result;
 }
@@ -110,7 +110,7 @@ FLAK_DECOMPRESSION_RESULT FLAK_zstd_decompress_data(const char* in_file_name, co
 	}
 	// Allocate memory with decompressed data as base size
 	FLAK_memory_arena_t* arena = FLAK_memory_arena_create(decompressed_size);
-	uint8_t* decompressed_data = FLAK_memory_arena_allocate(arena, decompressed_size, FLK_DEFAULT_ALIGNMENT);
+	uint8_t* decompressed_data = FLAK_memory_arena_allocate(arena, decompressed_size, FLAK_DEFAULT_ALIGNMENT);
 
 	// Perform decompression
 	size_t d_size = ZSTD_decompress(decompressed_data, decompressed_size, in_data, in_data_size);

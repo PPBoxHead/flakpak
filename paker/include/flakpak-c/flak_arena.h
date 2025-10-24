@@ -25,12 +25,12 @@
 // ---------------------------------------------------------------------------
 // File: [flak_arena.h - flak_arena.c]
 //
-// Description: Header file for a simple implementation of memory arena allocator used in flakpak.
+// Description: Single header file for a simple implementation of memory arena allocator used in flakpak.
 // 				Provides functions for creating, allocating from, and destroying memory arenas.
 // 
 // Author: \x45\x6D\x61\x6E\x75\x65\x6C\x20\x46\x61\x76\x61\x72\x6F
 // Date: 17.10.2025
-// Version: 1.0.0
+// Version: 1.0.1
 //
 // ---------------------------------------------------------------------------
 // Dependencies:
@@ -52,7 +52,7 @@
 #include <microlog/ulog.h>
 
 
-#define FLK_DEFAULT_ALIGNMENT sizeof(void*)
+#define FLAK_DEFAULT_ALIGNMENT sizeof(void*)
 
 
 typedef struct FLAK_memory_arena {
@@ -60,6 +60,7 @@ typedef struct FLAK_memory_arena {
     size_t size;
     size_t offset;
 } FLAK_memory_arena_t;
+
 
 static FLAK_memory_arena_t* FLAK_memory_arena_create(size_t in_size) {
     FLAK_memory_arena_t* arena = (FLAK_memory_arena_t*)malloc(sizeof(FLAK_memory_arena_t));
@@ -76,8 +77,29 @@ static FLAK_memory_arena_t* FLAK_memory_arena_create(size_t in_size) {
     return arena;
 }
 
-void* FLAK_memory_arena_allocate(FLAK_memory_arena_t* in_arena, size_t in_size, size_t in_align);
-void FLAK_memory_arena_reset(FLAK_memory_arena_t* in_arena);
-void FLAK_memory_arena_free(FLAK_memory_arena_t* in_arena);
+static void* FLAK_memory_arena_allocate(FLAK_memory_arena_t* in_arena, size_t in_size, size_t in_align) {
+    uintptr_t current = (uintptr_t)in_arena->base + in_arena->offset;
+    uintptr_t aligned = (current + (in_align - 1)) & ~(uintptr_t)(in_align - 1);
+    size_t padding = aligned - current;
+    if (in_arena->offset + padding + in_size > in_arena->size) {
+        ulog_error("Out of memory in arena (requested %zu bytes, available %zu bytes)\n", in_size, in_arena->size - in_arena->offset);
+        return NULL; // Out of space
+    }
+    in_arena->offset += padding + in_size;
+    return (void*)aligned;
+}
+
+static void FLAK_memory_arena_reset(FLAK_memory_arena_t* in_arena) {
+    in_arena->offset = 0;
+}
+
+static void FLAK_memory_arena_free(FLAK_memory_arena_t* in_arena) {
+    free(in_arena->base);
+    in_arena->base = NULL;
+    in_arena->size = in_arena->offset = 0;
+
+    ulog_trace("Freed memory arena data\n");
+}
+
 
 #endif // !FLAKPAK_ARENA_ALLOCATOR_H

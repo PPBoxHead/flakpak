@@ -15,10 +15,14 @@
 static void count_files_recursive(const char* dir_path, size_t* count) {
     tinydir_dir dir;
 
+#ifdef _WIN32
     // Convert input path to TCHAR, since tinydir uses TCHAR and char in Windows is not UTF-8
     /// Thanks to Santiago Farall on explaining this issue -> https://github.com/elsantiF
-    TCHAR tchar_in_dir_path[FLK_MAX_FILE_PATH_LENGTH] = { 0 };
+    TCHAR tchar_in_dir_path[FLK_MAX_FILE_PATH_LENGTH];
     MultiByteToWideChar(CP_UTF8, 0, dir_path, -1, tchar_in_dir_path, FLK_MAX_FILE_PATH_LENGTH);
+#else
+    const char* tchar_in_dir_path = in_current_dir;
+#endif
 
     if (tinydir_open(&dir, tchar_in_dir_path) == -1) {
         ulog_error("Failed to open directory: %s", dir_path);
@@ -175,12 +179,16 @@ static void pack_directory_recursive(const char* in_base_dir, const char* in_cur
 {
     tinydir_dir dir;
 
-    // Convert current path directory to TCHAR, since tinydir uses TCHAR and char in Windows is not UTF-8
+#ifdef _WIN32
+    // Convert input path to TCHAR, since tinydir uses TCHAR and char in Windows is not UTF-8
     /// Thanks to Santiago Farall on explaining this issue -> https://github.com/elsantiF
-    TCHAR tchar_dir[FLK_MAX_FILE_PATH_LENGTH] = { 0 };
-    MultiByteToWideChar(CP_UTF8, 0, in_current_dir, -1, tchar_dir, FLK_MAX_FILE_PATH_LENGTH);
+    TCHAR tchar_in_dir_path[FLK_MAX_FILE_PATH_LENGTH];
+    MultiByteToWideChar(CP_UTF8, 0, in_current_dir, -1, tchar_in_dir_path, FLK_MAX_FILE_PATH_LENGTH);
+#else
+    const char* tchar_in_dir_path = in_current_dir;
+#endif
 
-    if (tinydir_open(&dir, tchar_dir) == -1) {
+    if (tinydir_open(&dir, tchar_in_dir_path) == -1) {
         ulog_error("Failed to open directory: %s\n", in_current_dir);
         return;
     }
@@ -376,16 +384,16 @@ bool FLAK_pack_files(const char* in_dir_path, const char* out_output_path,
         (sizeof(size_t) * file_count) +
         4096; // Extra padding for alignment
 	FLAK_memory_arena_t* arena = FLAK_memory_arena_create(base_arena_size);
-    if (!arena | !arena->base) {
+    if (!arena || !arena->base) {
         ulog_fatal("Failed to allocate memory arena\n");
         if (arena) free(arena);
         return false;
     }
 
     // Allocate header and blobs
-    FLK_header_t* header = FLAK_memory_arena_allocate(arena, sizeof(FLK_header_t), FLK_DEFAULT_ALIGNMENT);
-	uint8_t** blobs = FLAK_memory_arena_allocate(arena, sizeof(uint8_t*) * file_count, FLK_DEFAULT_ALIGNMENT);
-	size_t* blob_sizes = FLAK_memory_arena_allocate(arena, sizeof(size_t) * file_count, FLK_DEFAULT_ALIGNMENT);
+    FLK_header_t* header = FLAK_memory_arena_allocate(arena, sizeof(FLK_header_t), FLAK_DEFAULT_ALIGNMENT);
+	uint8_t** blobs = FLAK_memory_arena_allocate(arena, sizeof(uint8_t*) * file_count, FLAK_DEFAULT_ALIGNMENT);
+	size_t* blob_sizes = FLAK_memory_arena_allocate(arena, sizeof(size_t) * file_count, FLAK_DEFAULT_ALIGNMENT);
     if (!header || !blobs || !blob_sizes) {
         ulog_fatal("Memory allocation failed\n");
         FLAK_memory_arena_free(arena);
