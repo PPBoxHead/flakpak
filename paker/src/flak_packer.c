@@ -10,6 +10,28 @@
 #define WINDOWS_IGNORE_PACKING_MISMATCH
 #include <tinydir/tinydir.h>
 
+// At the top of flak_packer.c, add:
+#ifdef _WIN32
+    #include <windows.h>
+#else
+    #include <sys/time.h>
+#endif
+
+// Add this helper function to get time in seconds
+static double get_time_seconds() {
+#ifdef _WIN32
+    LARGE_INTEGER frequency;
+    LARGE_INTEGER counter;
+    QueryPerformanceFrequency(&frequency);
+    QueryPerformanceCounter(&counter);
+    return (double)counter.QuadPart / (double)frequency.QuadPart;
+#else
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return (double)tv.tv_sec + (double)tv.tv_usec / 1000000.0;
+#endif
+}
+
 
 typedef struct FLAKFS_file_info {
     char path[FLK_MAX_FILE_PATH_LENGTH];
@@ -188,6 +210,8 @@ static bool write_flk_file(const char* in_out_path, FLK_header_t* in_header,
 
 bool FLAK_pack_files(const char* in_dir_path, const char* out_output_path,
     FLK_file_flags in_flags, int in_comp_level) {
+    double start_time = get_time_seconds();
+
     // STEP 1: Collect all files in a single pass
     FLAKFS_file_list_t file_list;
     if (!file_list_init(&file_list, 64)) {
@@ -277,7 +301,7 @@ bool FLAK_pack_files(const char* in_dir_path, const char* out_output_path,
             continue;
         }
 
-        ulog_info("Processing: %s", rel_path);
+        ulog_debug("Processing: %s", rel_path);
 
         // Read file data
         size_t data_size = 0;
@@ -372,7 +396,11 @@ bool FLAK_pack_files(const char* in_dir_path, const char* out_output_path,
     FLAK_memory_arena_free(arena);
     free(arena);
 
-    ulog_info("Successfully packed %u files to %s\n", entry_index, out_output_path);
+    double end_time = get_time_seconds();
+    double elapsed = end_time - start_time;
+
+    ulog_info("Successfully packed %u files to %s", entry_index, out_output_path);
+    ulog_info("Packing completed in %.3f seconds\n", elapsed);
     return true;
 }
 

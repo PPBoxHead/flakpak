@@ -73,7 +73,7 @@ static FLAK_memory_arena_t* FLAK_memory_arena_create(size_t in_size) {
     arena->size = in_size;
     arena->offset = 0;
 
-	ulog_trace("Created memory arena of size %zu bytes\n", in_size);
+	//ulog_trace("Created memory arena of size %zu bytes\n", in_size);
     return arena;
 }
 
@@ -98,7 +98,7 @@ static void FLAK_memory_arena_free(FLAK_memory_arena_t* in_arena) {
     in_arena->base = NULL;
     in_arena->size = in_arena->offset = 0;
 
-    ulog_trace("Freed memory arena data\n");
+    //ulog_trace("Freed memory arena data\n");
 }
 
 
