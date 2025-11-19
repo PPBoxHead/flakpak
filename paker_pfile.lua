@@ -82,7 +82,7 @@ project "Paker"
         postbuildcommands {
             -- Step 1: Set metadata (Company, Product, Version) with rcedit
             [[rcedit "%{cfg.buildtarget.abspath}" --set-version-string "CompanyName" "SACRAROSSA"]],
-            [[rcedit "%{cfg.buildtarget.abspath}" --set-version-string "ProductName" "flakpak CLI"]],
+            [[rcedit "%{cfg.buildtarget.abspath}" --set-version-string "ProductName" "flakpak-c CLI"]],
             [[rcedit "%{cfg.buildtarget.abspath}" --set-file-version "1.0.0"]],
             [[rcedit "%{cfg.buildtarget.abspath}" --set-product-version "1.0.0"]],
 

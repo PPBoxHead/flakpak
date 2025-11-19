@@ -49,3 +49,4 @@ filter "configurations:Release"
 filter {}
 
 include "paker_pfile.lua"
+include "test_pfile.lua"

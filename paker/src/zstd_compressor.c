@@ -21,6 +21,15 @@ FLAK_COMPRESSION_RESULT FLAK_zstd_compress_data(const char* in_file_name, const 
 		return compression_result;
 	}
 
+	// Pledge the source size so the frame will contain the original size.
+	// This makes ZSTD_getFrameContentSize() return the correct value on decompress.
+	ret = ZSTD_CCtx_setPledgedSrcSize(cctx, in_data_size);
+	if (ZSTD_isError(ret)) {
+		ZSTD_freeCCtx(cctx);
+		ulog_error("ZSTD: Error pledging source size for file %s: %s", in_file_name, ZSTD_getErrorName(ret));
+		return compression_result;
+	}
+
 	// Use dynamic buffer instead of repeated realloc
 	FLAK_dynamic_buffer_t output_buf;
 	if (!dynamic_buffer_init(&output_buf, FLAK_INITIAL_BUFFER_CAPACITY)) {
@@ -105,6 +114,56 @@ FLAK_DECOMPRESSION_RESULT FLAK_zstd_decompress_data(const char* in_file_name, co
 		return decompression_result;
 	}
 	else if (decompressed_size == ZSTD_CONTENTSIZE_UNKNOWN) {
+		ZSTD_DStream* dctx = ZSTD_createDStream();
+		if (!dctx) {
+			ulog_error("ZSTD: Failed to create DStream"); return decompression_result;
+		}
+		if (ZSTD_isError(ZSTD_initDStream(dctx))) {
+			ZSTD_freeDStream(dctx); return decompression_result;
+		}
+
+		FLAK_dynamic_buffer_t outbuf;
+		if (!dynamic_buffer_init(&outbuf, FLAK_INITIAL_BUFFER_CAPACITY)) {
+			ZSTD_freeDStream(dctx);
+			return decompression_result;
+		}
+
+		size_t in_pos = 0;
+		size_t out_chunk = ZSTD_DStreamOutSize();
+		uint8_t* tmp_out = malloc(out_chunk);
+		if (!tmp_out) {
+			dynamic_buffer_free(&outbuf);
+			ZSTD_freeDStream(dctx);
+			return decompression_result;
+		}
+
+		while (in_pos < in_data_size) {
+			ZSTD_inBuffer input = { in_data + in_pos, in_data_size - in_pos, 0 };
+			while (input.pos < input.size) {
+				ZSTD_outBuffer output = { tmp_out, out_chunk, 0 };
+				size_t ret = ZSTD_decompressStream(dctx, &output, &input);
+				if (ZSTD_isError(ret)) {
+					ulog_error("ZSTD decompressStream error: %s", ZSTD_getErrorName(ret));
+					free(tmp_out);
+					dynamic_buffer_free(&outbuf);
+					ZSTD_freeDStream(dctx);
+					return decompression_result;
+				}
+				if (output.pos) {
+					dynamic_buffer_append(&outbuf, tmp_out, output.pos);
+				}
+			}
+			// advance input across frames / chunks
+			in_pos += input.pos;
+		}
+
+		// transfer outbuf.data to decompression_result...
+		decompression_result.data = outbuf.data;
+		decompression_result.data_size = outbuf.size;
+
+		free(tmp_out);
+		ZSTD_freeDStream(dctx);
+
 		ulog_error("ZSTD: Original size unknown for file %s", in_file_name);
 		return decompression_result;
 	}
@@ -131,9 +190,6 @@ FLAK_DECOMPRESSION_RESULT FLAK_zstd_decompress_data(const char* in_file_name, co
 
 	decompression_result.data = decompressed_data;
 	decompression_result.data_size = d_size;
-
-	FLAK_memory_arena_free(arena);
-	free(arena);
 
 	return decompression_result;
 }

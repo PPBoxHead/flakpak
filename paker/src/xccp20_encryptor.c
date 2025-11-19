@@ -11,11 +11,16 @@ static bool derive_key(const char* in_password, uint8_t* in_salt, unsigned char*
 FLAK_ENCRYPTION_RESULT FLAK_xccp20_encrypt_data(const char* in_file_name, const uint8_t* in_data, size_t in_data_size, const char* in_password) {
 	// Generate random salt for key derivation
 	FLAK_ENCRYPTION_RESULT encryption_result = { 0 };
-	randombytes_buf(encryption_result.salt, 16);
+	const size_t salt_size = 16;
+	randombytes_buf(encryption_result.salt, salt_size);
 
 	// Derive key from password and salt
 	unsigned char key[crypto_aead_xchacha20poly1305_ietf_KEYBYTES];
-	derive_key(in_password, encryption_result.salt, key);
+	if (!derive_key(in_password, encryption_result.salt, key)) {
+		ulog_error("XCCP20: Key derivation failed for file %s", in_file_name);
+		memset(&encryption_result, 0, sizeof(FLAK_ENCRYPTION_RESULT));
+		return encryption_result;
+	}
 
 	randombytes_buf(encryption_result.nonce, crypto_aead_xchacha20poly1305_ietf_NPUBBYTES);
 
@@ -42,35 +47,41 @@ FLAK_ENCRYPTION_RESULT FLAK_xccp20_encrypt_data(const char* in_file_name, const 
 		return encryption_result;
 	}
 
-	uint8_t* temp = (uint8_t*)realloc(ciphertext, ciphertext_len);
-	if (temp == NULL) {
-		ulog_fatal("XCCP20: Memory reallocation failed for file %s", in_file_name);
-		free(ciphertext);
-		memset(&encryption_result, 0, sizeof(FLAK_ENCRYPTION_RESULT));
-		return encryption_result;
+	// shrink ciphertext buffer if needed
+	uint8_t* temp = (uint8_t*)realloc(ciphertext, (size_t)ciphertext_len);
+	if (temp != NULL) {
+		ciphertext = temp;
 	}
-	ciphertext = temp;
 
-	// Prepend nonce to ciphertext for storage/transmission
+	// Build output: [salt | nonce | ciphertext]
 	size_t nonce_size = crypto_aead_xchacha20poly1305_ietf_NPUBBYTES;
-	size_t total_size = nonce_size + ciphertext_len;
+	size_t total_size = salt_size + nonce_size + (size_t)ciphertext_len;
 
 	encryption_result.data = (uint8_t*)malloc(total_size);
 	if (encryption_result.data == NULL) {
 		ulog_fatal("XCCP20: Memory allocation failed for final encrypted data for file %s", in_file_name);
 		free(ciphertext);
+		sodium_memzero(key, sizeof key);
 		memset(&encryption_result, 0, sizeof(FLAK_ENCRYPTION_RESULT));
 		return encryption_result;
 	}
 
-	// Copy nonce and ciphertext
-	if (total_size >= nonce_size && total_size >= (nonce_size + ciphertext_len)) {
-		memcpy(encryption_result.data, encryption_result.nonce, nonce_size);
-		memcpy(encryption_result.data + nonce_size, ciphertext, ciphertext_len);
+	// Copy salt, nonce and ciphertext
+	if (encryption_result.data != NULL && total_size >= (salt_size + nonce_size + ciphertext_len)) {
+		memcpy(encryption_result.data, encryption_result.salt, salt_size);
+		memcpy(encryption_result.data + salt_size, encryption_result.nonce, nonce_size);
+		memcpy(encryption_result.data + salt_size + nonce_size, ciphertext, ciphertext_len);
+		encryption_result.data_size = total_size;
+	} else {
+		ulog_fatal("XCCP20: Buffer overrun risk detected for file %s", in_file_name);
+		free(ciphertext);
+		sodium_memzero(key, sizeof key);
+		memset(&encryption_result, 0, sizeof(FLAK_ENCRYPTION_RESULT));
+		return encryption_result;
 	}
 
-	encryption_result.data_size = total_size;
-
+	// Clean up
+	sodium_memzero(key, sizeof key);
 	free(ciphertext);
 
 	return encryption_result;
@@ -79,27 +90,43 @@ FLAK_ENCRYPTION_RESULT FLAK_xccp20_encrypt_data(const char* in_file_name, const 
 FLAK_DECRYPTION_RESULT FLAK_xccp20_decrypt_data(const char* in_file_name, const uint8_t* in_data, size_t in_data_size, const char* in_password) {
 	FLAK_DECRYPTION_RESULT decryption_result = { 0 };
 
-	if (in_data_size < crypto_aead_xchacha20poly1305_ietf_NPUBBYTES +
-		crypto_aead_xchacha20poly1305_ietf_ABYTES) {
+	const size_t salt_size = 16;
+	const size_t nonce_size = crypto_aead_xchacha20poly1305_ietf_NPUBBYTES;
+	const size_t min_size = salt_size + nonce_size + crypto_aead_xchacha20poly1305_ietf_ABYTES;
+
+	if (in_data_size < min_size) {
 		ulog_error("XCCP20: Encrypted data too short for file %s", in_file_name);
 		return decryption_result;
 	}
 
-	// Derive key
-	unsigned char key[crypto_aead_xchacha20poly1305_ietf_KEYBYTES];
-	derive_key(in_password, (uint8_t*)in_data, key);
+	// Extract salt, nonce and ciphertext from input
+	const unsigned char* salt = in_data;
+	const unsigned char* nonce = in_data + salt_size;
+	const unsigned char* ciphertext = in_data + salt_size + nonce_size;
+	size_t ciphertext_len = in_data_size - salt_size - nonce_size;
 
-	const unsigned char* nonce = in_data;
-	const unsigned char* ciphertext = in_data + crypto_aead_xchacha20poly1305_ietf_NPUBBYTES;
-	size_t ciphertext_len = in_data_size - crypto_aead_xchacha20poly1305_ietf_NPUBBYTES;
+	// Derive key from provided salt
+	unsigned char key[crypto_aead_xchacha20poly1305_ietf_KEYBYTES];
+	if (!derive_key(in_password, (uint8_t*)salt, key)) {
+		ulog_error("XCCP20: Key derivation failed for file %s", in_file_name);
+		sodium_memzero(key, sizeof key);
+		return decryption_result;
+	}
 
 	if (ciphertext_len < crypto_aead_xchacha20poly1305_ietf_ABYTES) {
 		ulog_error("XCCP20: Ciphertext too short for file %s", in_file_name);
+		sodium_memzero(key, sizeof key);
 		return decryption_result;
 	}
 
 	size_t decrypted_size = ciphertext_len - crypto_aead_xchacha20poly1305_ietf_ABYTES;
 	uint8_t* decrypted_data = (uint8_t*)malloc(decrypted_size);
+	if (decrypted_data == NULL) {
+		ulog_fatal("XCCP20: Memory allocation failed for decryption for file %s", in_file_name);
+		sodium_memzero(key, sizeof key);
+		return decryption_result;
+	}
+
 	unsigned long long decrypted_len = 0;
 	int result = crypto_aead_xchacha20poly1305_ietf_decrypt(
 		decrypted_data, &decrypted_len,
@@ -109,6 +136,9 @@ FLAK_DECRYPTION_RESULT FLAK_xccp20_decrypt_data(const char* in_file_name, const 
 		nonce, key
 	);
 
+	// Always zero key material after use
+	sodium_memzero(key, sizeof key);
+
 	if (result != 0) {
 		ulog_error("XCCP20: Decryption failed or data is tampered for file %s", in_file_name);
 		free(decrypted_data);
@@ -117,7 +147,7 @@ FLAK_DECRYPTION_RESULT FLAK_xccp20_decrypt_data(const char* in_file_name, const 
 
 	decryption_result.data = decrypted_data;
 	decryption_result.data_size = decrypted_len;
-	
+
 	return decryption_result;
 }
 
